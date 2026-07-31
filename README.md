@@ -50,6 +50,17 @@ export LLM_MODEL=qwen2.5-72b-instruct
 make dev            # 业务代码一行不改
 ```
 
+没有 Key 也想看"接上模型"的效果（评审现场用），起一个本机假底座：
+
+```bash
+python3 aiedu.py mock-llm --port 8910     # 另开一个终端
+LLM_BASE_URL=http://127.0.0.1:8910/v1 LLM_API_KEY=demo LLM_MODEL=mock-qwen \
+python3 aiedu.py dev
+```
+
+接上之后**班级诊断的结论、缺口计算、置信度逐字节不变，只有措辞变了**——
+这条已经写成自动化测试（`tests/test_llm_switch.py`），每次提交都跑。
+
 ---
 
 ## 它解决什么
@@ -108,6 +119,7 @@ make replay         # 从事件流重算全班状态，逐条比对
 | 禁止直连大模型 SDK | AST 导入检查 |
 | 不生成教师评价数据 | schema 关键字检查 |
 | 只奖励坚持，不奖励正确率 | `ALLOWED_KINDS` 白名单 + 运行时 `ValueError` |
+| 换模型不改变任何判断 | `tests/test_llm_switch.py` 走真实 HTTP，逐字节比对结论 |
 
 ---
 
@@ -193,7 +205,7 @@ make gap STUDENT=1 TASK=T-AGV-3
 | 向量 | 哈希字符 bigram 确定性嵌入 | 真实 embedding，换模型批量重算 |
 | 大模型 | 离线表达器 / OpenAI 兼容接口 | Qwen / DeepSeek 私有化部署 |
 | 前端 | 原生 JS + CSS，零构建 | React + TypeScript + Tailwind |
-| 测试 | unittest（79 个用例） | pytest |
+| 测试 | unittest（83 个用例） | pytest |
 
 之所以先做成零依赖版：**演示环境与生产环境跑的必须是同一套逻辑**。
 所有可替换件都在接口后面（`packages/llm`、`packages/rag`、`packages/core/db`），
@@ -219,8 +231,8 @@ packages/agents     L3 六个智能体
 packages/adapters   项目数据适配器（每项目一个）
 migrations          数据库迁移与约束
 data/seed           课程图谱 / 项目任务 / 知识库 / 规则映射（教师可直接维护）
-scripts             seed / demo / replay / gap / lint
-tests               79 个用例，含架构铁律检查
+scripts             seed / demo / replay / gap / lint / mock_llm / make_deck
+tests               83 个用例，含架构铁律与换模型不变性检查
 docs                架构说明、标注规范、API、演示脚本
 ```
 
@@ -245,7 +257,8 @@ python3 aiedu.py <同名子命令>        # 无 make 环境的等价入口
 - [`docs/architecture.md`](docs/architecture.md) —— 架构决策与依据
 - [`docs/kp-annotation.md`](docs/kp-annotation.md) —— 知识点标注规范（教师用）
 - [`docs/api.md`](docs/api.md) —— 接口清单
-- [`docs/demo.md`](docs/demo.md) —— 15 分钟演示脚本（评审会用）
+- [`docs/demo.md`](docs/demo.md) —— **汇报与演示预案**（会前检查单、四段演示逐步照做、Q&A 预案）
+- [`docs/slides/`](docs/slides/) —— 汇报 PPT（32 页，pptx + pdf），由 `scripts/make_deck.py` 生成
 - [`docs/decisions.md`](docs/decisions.md) —— 待教师团队拍板的 8 个参数
 - [`CLAUDE.md`](CLAUDE.md) —— 架构铁律与开发规范（每次开工必读）
 - [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) —— 分阶段开发计划与验收标准

@@ -6,6 +6,7 @@
     python3 aiedu.py migrate                  数据库迁移
     python3 aiedu.py seed [course|projects|kb|teachers]
     python3 aiedu.py demo [N]                 生成虚拟班级演示数据
+    python3 aiedu.py mock-llm [--port 8910]   本机假底座（无 Key 也能演示"接上大模型"）
     python3 aiedu.py test                     全量测试
     python3 aiedu.py test-state               仅测状态层（改 BKT 后必跑）
     python3 aiedu.py check                    架构铁律自检
@@ -61,6 +62,8 @@ def main() -> int:
         return run([PY, "scripts/seed.py", *rest])
     if cmd == "demo":
         return run([PY, "scripts/demo.py", *(rest or ["60"])])
+    if cmd == "mock-llm":
+        return run([PY, "scripts/mock_llm.py", *rest])
     if cmd == "lint":
         return run([PY, "scripts/lint.py"])
     if cmd == "replay":

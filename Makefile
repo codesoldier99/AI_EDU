@@ -1,7 +1,7 @@
 PY ?= python3
 PORT ?= 8900
 
-.PHONY: help dev migrate seed demo test test-state lint replay gap clean reset check
+.PHONY: help dev migrate seed demo mock-llm test test-state lint replay gap clean reset check
 
 help:
 	@echo "苏格拉底式 AI 教学系统"
@@ -11,6 +11,7 @@ help:
 	@echo "  make migrate                  数据库迁移"
 	@echo "  make seed                     导入知识图谱 / 项目任务 / 知识库种子"
 	@echo "  make demo N=60                生成虚拟班级演示数据"
+	@echo "  make mock-llm                 本机假底座（无 Key 也能演示接入大模型）"
 	@echo "  make test                     全量测试"
 	@echo "  make test-state               仅测状态层（改 BKT 后必跑）"
 	@echo "  make lint                     静态检查（无 ruff 时退化为语法与规范自检）"
@@ -35,6 +36,9 @@ seed:
 
 demo:
 	$(PY) scripts/demo.py $(or $(N),60)
+
+mock-llm:
+	$(PY) scripts/mock_llm.py --port $(or $(MOCKPORT),8910)
 
 test:
 	$(PY) -m unittest discover -s tests -t tests -v
