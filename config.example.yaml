@@ -1,0 +1,44 @@
+# 复制为 config.yaml 后生效。环境变量优先级更高。
+# 当前生效值可通过 GET /api/config 或界面【可审计性】页核对。
+
+# ---- 服务 ----
+host: 127.0.0.1
+port: 8900
+db_url: "sqlite:///var/aiedu.db"
+# 生产形态：postgresql://user:pass@host/aiedu   （需安装 psycopg 并实现 PgDatabase）
+
+# ---- 大模型（可替换件）----
+# 留空则自动降级为离线确定性表达器：无网络也能完整演示，且系统判断不变。
+llm_base_url: ""            # 如 https://dashscope.aliyuncs.com/compatible-mode/v1
+llm_api_key: ""
+llm_model: "qwen2.5-72b-instruct"
+llm_timeout: 60
+
+# ---- 向量（换模型后 store.stale_embeddings() 会算出待重算的块数）----
+embed_model: "hashed-char-bigram-tfidf"
+embed_version: "v1"
+embed_dim: 256
+
+# ---- 教学参数：初值由教师经验给定，详见 docs/decisions.md ----
+teaching:
+  mastery_threshold: 0.75        # 低于此值判定"未掌握"、进入缺口
+  gap_push_limit: 2              # 一次最多推几个缺口知识点
+  confidence_saturation: 5.0     # 证据条数达到多少时置信度接近饱和
+  confidence_halflife_days: 45.0 # 证据新鲜度半衰期
+  escalation_attempts: 3         # 连续尝试多少次无进展后降一级
+  frustration_repeats: 2         # 一次会话内重复求助多少次判定为挫败
+  comeback_gap_days: 3           # 中断多少天后重新活跃算 comeback
+  min_evidence_for_report: 3     # 证据少于此数，报告标注"数据不足"
+
+  bkt_default:                   # BKT 课程级默认参数（冷启动）
+    p_init: 0.15
+    p_transit: 0.20
+    p_slip: 0.10
+    p_guess: 0.20
+
+  signal_weights:                # 五类项目信号 → M1-M8，待教师团队标定
+    code_commit:   {M2: 0.5, M7: 0.5}
+    build_test:    {M7: 0.6, M2: 0.4}
+    runtime:       {M5: 0.5, M6: 0.3, M3: 0.2}
+    doc_delivery:  {M8: 0.8, M7: 0.2}
+    collaboration: {M7: 0.7, M8: 0.3}

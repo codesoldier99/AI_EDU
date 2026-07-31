@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>苏格拉底式 AI 教学系统</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">苏</span>
+    <div>
+      <h1>苏格拉底式 AI 教学系统</h1>
+      <p class="sub">福建理工大学 人工智能与交通工程学院 · 院长工作室实验班</p>
+    </div>
+  </div>
+  <div class="session">
+    <span id="llm-badge" class="badge" title="大模型状态"></span>
+    <select id="identity"></select>
+    <button id="btn-theme" class="ghost" title="切换主题">◐</button>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs"></nav>
+
+<main id="view"></main>
+
+<footer class="foot">
+  <span>状态由算法维护，大模型只负责表达 · 事件流只追加、状态可重算</span>
+  <span id="foot-stats"></span>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

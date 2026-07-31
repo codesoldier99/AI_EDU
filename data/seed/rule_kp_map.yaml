@@ -1,0 +1,91 @@
+# 代码缺陷 → 知识点 映射表（模块四回写 L2 的唯一依据）
+#
+# 原则：**若某类缺陷无法可靠映射到知识点，则不回写，宁缺毋滥。**
+# reliable: true  —— 教师确认该规则命中即可作为知识点未掌握的证据（权重仅 0.5）
+# reliable: false —— 只作为审查建议展示，绝不回写 L2
+#
+# 本表由教师团队维护。DEVELOPMENT_PLAN §九.7 待拍板事项之一：
+# "代码缺陷→知识点的映射规则——哪些缺陷可以可靠回写？"
+
+rules:
+  E000:
+    desc: 语法错误
+    kp_codes: []
+    reliable: false
+    note: 语法错误不指向具体学科知识点
+
+  E001:
+    desc: 裸 except 吞异常
+    kp_codes: [ML-13-11]
+    reliable: false
+    note: 与"日志与故障定位"相关但不足以判定未掌握，仅作建议
+
+  E002:
+    desc: 可变默认参数
+    kp_codes: []
+    reliable: false
+    note: 属通用编程陷阱，本课程图谱中无对应知识点，按宁缺毋滥不回写
+
+  E003:
+    desc: 与 None 用 == 比较
+    kp_codes: []
+    reliable: false
+
+  E004:
+    desc: 函数过长
+    kp_codes: []
+    reliable: false
+
+  E005:
+    desc: 圈复杂度过高
+    kp_codes: []
+    reliable: false
+
+  E006:
+    desc: 公开函数缺 docstring
+    kp_codes: []
+    reliable: false
+
+  E007:
+    desc: 未使用的导入
+    kp_codes: []
+    reliable: false
+
+  E008:
+    desc: 硬编码密钥
+    kp_codes: [ML-03-13]
+    reliable: true
+    note: 直接违反数据合规要求，可作为"数据合规与隐私保护"未落实的确定性证据
+
+  E010:
+    desc: 单行过长
+    kp_codes: []
+    reliable: false
+
+  E012:
+    desc: 三层以上嵌套循环
+    kp_codes: []
+    reliable: false
+    note: 复杂度意识相关，但本课程无对应可判定知识点
+
+  # ---- 以下为面向数据科学脚本的专用规则，映射可靠性较高 ----
+  D001:
+    desc: 在划分数据集之前做了标准化/编码（fit 用了全量数据）
+    kp_codes: [ML-03-08, ML-03-04]
+    reliable: true
+    note: 典型数据泄漏，命中即可确证"数据泄漏的识别与防范"未掌握
+
+  D002:
+    desc: 在测试集上调阈值或选模型
+    kp_codes: [ML-04-10, ML-01-04]
+    reliable: true
+
+  D003:
+    desc: 不平衡数据只报准确率
+    kp_codes: [ML-04-02]
+    reliable: true
+
+  D004:
+    desc: 未固定随机种子导致结果不可复现
+    kp_codes: [ML-11-14, ML-03-11]
+    reliable: true
