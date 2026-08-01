@@ -11,6 +11,7 @@ from packages.agents.task import TaskAgent, compute_gap
 from packages.engagement import service as engagement
 from packages.graph import repo as graph_repo
 from packages.state import tracker
+from packages.state import verification
 
 from .. import auth
 from ..microapi import App, HTTPError, Request
@@ -140,6 +141,25 @@ def register(app: App) -> None:
         klass = req.q("klass")
         auth.assert_can_view_class(req, klass)
         return engagement.class_engagement(klass, req.qi("days", 7))
+
+    # ---------------- 掌握的质量：验证 / 复检 / 提示依赖 ----------------
+    @app.get("/api/verification/{student_id}")
+    def verification_view(req: Request):
+        sid = _self_or_teacher(req, int(req.path_params["student_id"]))
+        v = verification.build(sid).to_dict()
+        v["due_reviews"] = verification.due_reviews(sid, req.qi("limit", 5))
+        v["independence"] = verification.independence(sid).to_dict()
+        v["style_effectiveness"] = verification.style_effectiveness(sid)
+        return v
+
+    @app.get("/api/verification", role="teacher")
+    def class_verification(req: Request):
+        klass = req.q("klass")
+        auth.assert_can_view_class(req, klass)
+        c = graph_repo.get_course(req.q("course", "ML"))
+        if not c:
+            raise HTTPError(404, "课程不存在")
+        return verification.class_verification(c["id"], klass)
 
     # ---------------- 副驾驶与简报 ----------------
     @app.post("/api/copilot")

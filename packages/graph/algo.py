@@ -163,6 +163,32 @@ def nearest_mastered_prerequisite(
     return best[0] if best else None
 
 
+def depth_map(course_id: int | None = None) -> dict[int, int]:
+    """每个知识点的依赖深度 = 从任一无前置节点出发到它的最长路径。
+
+    只用于**可视化分层**（3D 图谱的 Y 轴：前置在下、后继在上），
+    不用于安排教学顺序——那正是本项目已经废弃的做法。
+    """
+    pre, _post = repo.adjacency(course_id)
+    depth: dict[int, int] = {}
+
+    def solve(n: int, seen: set[int]) -> int:
+        if n in depth:
+            return depth[n]
+        if n in seen:      # 防御性：图谱应为 DAG，成环时不再递归
+            return 0
+        seen.add(n)
+        parents = pre.get(n, [])
+        d = 0 if not parents else 1 + max(solve(p, seen) for p in parents)
+        seen.discard(n)
+        depth[n] = d
+        return d
+
+    for n in pre:
+        solve(n, set())
+    return depth
+
+
 def coverage_map(course_id: int, mastery: dict[int, float]) -> list[dict]:
     """知识覆盖图：在图谱上标注掌握深浅，供画像展示。"""
     out = []

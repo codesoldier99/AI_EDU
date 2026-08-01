@@ -107,7 +107,13 @@ def simulate(students: list[dict], weeks: int = 8) -> dict:
     n_events = 0
     profiles = {s["id"]: student_profile(i) for i, s in enumerate(students)}
     for w in range(weeks):
-        week_kps = ordered[w * per_week: (w + 1) * per_week]
+        new_kps = ordered[w * per_week: (w + 1) * per_week]
+        # 间隔复习：真实教学里知识点会被回访（周测、月考、期中），
+        # 而"隔周再考一次还对"正是本系统判定「已验证掌握」的依据。
+        # 若演示数据只在当周考一次，验证率会恒为 0——那不是系统的问题，是数据不真实。
+        older = ordered[: w * per_week]
+        review_kps = RNG.sample(older, k=min(len(older), max(2, per_week // 3))) if older else []
+        week_kps = new_kps + review_kps
         for s in students:
             prof = profiles[s["id"]]
             if prof["absent_week"] and w == weeks - 3:

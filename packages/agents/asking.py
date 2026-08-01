@@ -22,6 +22,7 @@ from packages.graph import repo as graph_repo
 from packages.rag import retriever
 from packages.state import repo as state_repo
 from packages.state import tracker
+from packages.state import verification
 
 from .base import Agent, AgentOutput
 
@@ -58,12 +59,18 @@ class AskingStrategy:
 
         # 深度：掌握度越低拆得越细（1~4 级）
         depth = 1 if p >= 0.6 else 2 if p >= 0.4 else 3 if p >= 0.2 else 4
-        # 类型：优先换一种没用过的方式，避免同一套问法反复无效
+        # 类型：先按知识点性质给一个默认次序，
+        # 再用**该学生的实测有效率**重排——"顺着你的学法"不能只停留在难度自适应，
+        # 必须记住"对他而言反例质疑管用、类比迁移不管用"。证据不足时不猜，用默认序。
         used = set(history_styles or [])
         if kp and kp.kp_type in ("method", "skill"):
             order = ["条件变更", "反例质疑", "类比迁移", "概念澄清"]
         else:
             order = ["概念澄清", "反例质疑", "类比迁移", "条件变更"]
+        prefer = [s for s in verification.preferred_styles(student_id) if s in STYLES]
+        if prefer:
+            order = prefer + [s for s in order if s not in prefer]
+        # 仍然轮换：同一套问法连着无效时要换，不能锁死在历史最优上
         style = next((s for s in order if s not in used), order[0])
 
         return AskingPlan(
@@ -79,7 +86,7 @@ class AskingStrategy:
                 f"掌握度 {p:.2f}<{thr}，从已掌握的「{entry_kp.name}」切入"
                 if entry_kp
                 else f"掌握度 {p:.2f}，未找到已掌握的前置点，从最基础处问起"
-            ),
+            ) + (f"；按你的历史反馈优先用「{prefer[0]}」" if prefer else ""),
         )
 
 

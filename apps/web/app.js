@@ -336,6 +336,44 @@ async function viewMe(root) {
       h('p', { class: 'hint' }, '不做全班排行榜，只做个人成长曲线'))),
   ));
 
+  // 掌握的质量：验证过没有、还记得吗、是自己挣来的吗
+  try {
+    const q = await api(`/api/verification/${sid}`);
+    const ind = q.independence;
+    root.append(card('掌握的质量', h('div', {},
+      h('p', { class: 'hint' },
+        '一次做对不算掌握。只有间隔若干天之后再次做对，才算"已验证"；'
+        + '而掌握度会随时间衰减，掉下来就该复检了。'),
+      h('div', { class: 'grid g3' },
+        card('已验证掌握', h('div', {},
+          h('div', { class: 'kpi' }, `${q.n_validated}/${q.n_mastered}`,
+            h('small', {}, `验证率 ${pct(q.validated_rate)}`)),
+          h('p', { class: 'hint' }, '跨时间再次做对才算数，挡住"当堂练到做对"'))),
+        card('待复检', h('div', {},
+          h('div', { class: 'kpi' }, q.n_due, h('small', {}, '个知识点')),
+          h('p', { class: 'hint' }, '曾经达标，按遗忘曲线已掉到复检线以下'))),
+        card('无提示做对率', h('div', {},
+          h('div', { class: 'kpi' }, pct(ind.unaided_rate),
+            h('small', {}, `${ind.n_unaided_correct}/${ind.n_correct}`)),
+          h('p', { class: 'hint' }, '诊断指标，不作为激励对象或排名依据')))),
+      q.due_reviews.length
+        ? h('div', {}, h('h4', {}, '该复习了'),
+          tableOf(['知识点', '当时掌握度', '计入遗忘', '多久没碰', '挡路度'],
+            q.due_reviews.map((r) => [
+              h('a', { href: '#', onclick: (e) => { e.preventDefault(); startAsk(r.kp_id); } },
+                r.name),
+              f3(r.p_mastery), f3(r.retained), `${r.days_since} 天`, r.blocking_severity])))
+        : h('p', { class: 'hint' }, '暂无到期复检的知识点'),
+      Object.keys(q.style_effectiveness || {}).length
+        ? h('div', {}, h('h4', {}, '哪种追问方式对你有效'),
+          tableOf(['方式', '用过', '有进展', '有效率'],
+            Object.entries(q.style_effectiveness).map(([k, v]) =>
+              [k, v.tried, v.progressed, pct(v.rate)])),
+          h('p', { class: 'hint' }, '系统会优先用对你有效的那种问法——证据不足时不猜'))
+        : null,
+    )));
+  } catch (e) { /* 冷启动期没有数据，静默跳过 */ }
+
   const weak = diag.plan.weak_points;
   root.append(card('待攻克与根因', tableOf(
     ['知识点', '掌握度', '置信度', '证据', '根因'],
@@ -574,6 +612,47 @@ async function openKp(kpId) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// ---------------------------------------------------------------- 视图：知识宇宙（3D）
+async function viewUniverse(root) {
+  const sid = currentStudent();
+  root.append(loading());
+  const url = `/api/universe/ML${isTeacher() || myId() ? `?student_id=${sid}` : ''}`;
+  const data = await api(url);
+  root.innerHTML = '';
+
+  root.append(card('知识宇宙', h('div', {},
+    h('p', { class: 'hint' },
+      '依赖边不再是教学顺序表，而是"要做这个还缺什么"的检索索引。'
+      + '球体大小是挡路度，颜色是掌握度；琥珀色光环表示"曾经达标、按遗忘曲线已经掉下来"，'
+      + '需要复检。左键旋转、滚轮缩放、单击选中、双击飞过去。'),
+    h('div', { class: 'flexrow' },
+      h('span', { class: 'tag' }, `${data.nodes.length} 知识点`),
+      h('span', { class: 'tag' }, `${data.edges.length} 依赖边`),
+      h('span', { class: 'tag' }, `最大依赖深度 ${data.max_depth}`),
+      h('span', { class: 'tag accent' }, data.course.name)))));
+
+  const wrap = h('div', { class: 'kg-wrap' });
+  root.append(wrap);
+  root.append(h('p', { class: 'kg-hint' },
+    '演示提示：选一个红色的知识点，点【根因回溯】——系统会沿依赖边把整条链点亮并飞过去。'
+    + '"他不是反向传播不会，是链式法则没通"这句话，在这里是看得见的一条光路。'));
+
+  try {
+    const mod = await import('/graph3d.js');
+    if (S.universe) { S.universe.destroy(); S.universe = null; }
+    S.universe = mod.mountUniverse(wrap, {
+      data,
+      fetchRootCause: (kpId) =>
+        api(`/api/universe/ML/rootcause/${kpId}?student_id=${sid}`).catch(() => null),
+      onAsk: (d) => startAsk(d.id),
+    });
+  } catch (e) {
+    wrap.innerHTML = '';
+    wrap.append(h('div', { class: 'notice bad' },
+      `3D 视图加载失败：${e.message}。可改用【知识图谱】的表格视图。`));
+  }
+}
+
 // ---------------------------------------------------------------- 视图：可审计性
 async function viewAudit(root) {
   root.append(loading());
@@ -695,6 +774,7 @@ const TABS = [
   { id: 'pull', name: '拉取式任务', role: 'any', view: viewPull, student: true },
   { id: 'ask', name: '引导追问', role: 'any', view: viewAsk, student: true },
   { id: 'copilot', name: '学习副驾驶', role: 'any', view: viewCopilot, student: true },
+  { id: 'universe', name: '知识宇宙 3D', role: 'any', view: viewUniverse, student: true },
   { id: 'graph', name: '知识图谱', role: 'any', view: viewGraph },
   { id: 'audit', name: '可审计性', role: 'any', view: viewAudit, student: true },
 ];
@@ -714,6 +794,7 @@ function renderTabs() {
 }
 
 async function render() {
+  if (S.universe) { S.universe.destroy(); S.universe = null; }
   const tab = visibleTabs().find((t) => t.id === S.tab) || visibleTabs()[0];
   S.tab = tab.id;
   renderTabs();

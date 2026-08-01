@@ -95,3 +95,65 @@ tr:last-child td{border-bottom:none}
 .loading{color:var(--muted);padding:30px;text-align:center}
 .foot{display:flex;justify-content:space-between;gap:12px;padding:14px 22px;color:var(--muted);
   font-size:12px;border-top:1px solid var(--line);margin-top:24px;flex-wrap:wrap}
+
+/* ---------------- 知识宇宙（3D 图谱） ---------------- */
+.kg-wrap{position:relative;border-radius:var(--radius);overflow:hidden;
+  border:1px solid var(--line);background:#070b14}
+.kg-canvas{position:relative;width:100%;height:min(70vh,660px)}
+.kg-canvas canvas{display:block;width:100%;height:100%}
+.kg-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.kg-label{position:absolute;left:0;top:0;white-space:nowrap;font-size:12px;
+  color:#cfe0f7;text-shadow:0 1px 3px #000,0 0 10px #000;padding:1px 4px;
+  transform:translate(-50%,-50%);opacity:.92}
+.kg-label.sel{color:#fff;font-weight:600;font-size:13px;
+  background:rgba(31,111,235,.85);border-radius:4px}
+.kg-label.path{color:#9ecbff;font-weight:600}
+
+.kg-ui{position:absolute;left:12px;top:12px;display:flex;flex-direction:column;gap:8px;
+  z-index:3;max-width:calc(100% - 24px)}
+.kg-bar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.kg-bar button,.kg-bar input,.kg-bar select{
+  background:rgba(13,20,34,.82);color:#cfe0f7;border:1px solid #2b3a55;
+  border-radius:6px;padding:4px 10px;font-size:12px;backdrop-filter:blur(6px)}
+.kg-bar button:hover{border-color:#4da3ff;color:#fff}
+.kg-bar button.on{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.kg-bar input{min-width:150px}
+.kg-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:11px;
+  color:#9fb3d1;background:rgba(13,20,34,.7);border:1px solid #2b3a55;
+  border-radius:6px;padding:5px 10px;backdrop-filter:blur(6px)}
+.kg-legend i{display:inline-block;width:26px;height:8px;border-radius:99px;
+  margin-right:5px;vertical-align:middle}
+.kg-legend i.ring{width:11px;height:11px;border-radius:50%;background:transparent;
+  border:2px solid #e3a008}
+.kg-legend i.ring.ok{border-color:#2ecc71}
+.kg-legend .muted{color:#7f93b0}
+
+.kg-panel{position:absolute;right:12px;top:12px;width:300px;max-height:calc(100% - 24px);
+  overflow:auto;background:rgba(13,20,34,.93);border:1px solid #2b3a55;border-radius:10px;
+  color:#cfe0f7;padding:14px;backdrop-filter:blur(10px);z-index:4;
+  transform:translateX(120%);transition:transform .22s ease;font-size:13px}
+.kg-panel.open{transform:none}
+.kg-p-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.kg-p-title{font-size:15px;font-weight:600;color:#fff;line-height:1.35}
+.kg-p-sub{font-size:11px;color:#8fa6c8;margin-top:2px}
+.kg-panel .kg-close{background:none;border:none;color:#8fa6c8;font-size:20px;
+  line-height:1;cursor:pointer;padding:0 2px}
+.kg-tags{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0}
+.kg-tags .tag{font-size:11px;border:1px solid #2b3a55;color:#9fb3d1;border-radius:99px;
+  padding:1px 8px}
+.kg-tags .tag.accent{color:#9ecbff;border-color:#2f5c92;background:rgba(31,111,235,.16)}
+.kg-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.kg-metrics div{background:rgba(255,255,255,.04);border-radius:8px;padding:8px;
+  text-align:center}
+.kg-metrics b{display:block;font-size:16px;color:#fff}
+.kg-metrics span{font-size:10px;color:#8fa6c8}
+.kg-note{font-size:12px;color:#9fb3d1;border-left:2px solid #2b3a55;padding:6px 10px;
+  margin:8px 0;background:rgba(255,255,255,.03);border-radius:0 6px 6px 0;line-height:1.6}
+.kg-note.warn{border-color:#e3a008;color:#e8c37a}
+.kg-note.hi{border-color:#4da3ff;color:#9ecbff}
+.kg-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.kg-actions button{background:rgba(255,255,255,.06);color:#cfe0f7;border:1px solid #2b3a55;
+  border-radius:6px;padding:5px 10px;font-size:12px}
+.kg-actions button:hover{border-color:#4da3ff}
+.kg-actions button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+.kg-hint{color:var(--muted);font-size:12px;margin-top:8px}

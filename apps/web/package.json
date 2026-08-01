@@ -1,0 +1,6 @@
+{
+  "name": "aiedu-web",
+  "private": true,
+  "type": "module",
+  "_comment": "这里没有依赖、没有构建步骤。存在这个文件只是为了声明 apps/web 下的 .js 是 ES module，好让 Node 能直接跑 tests/web_core.test.mjs。浏览器不读它。"
+}

@@ -31,9 +31,15 @@
    已有证据：不加限制的 AI 辅助会使学生独立考试成绩下降约 17%；引导式提示则显著优于传统方式。
    合法的优化目标只有四个：**延迟后测表现、迁移任务表现、项目产出质量、主动使用率**。
 
+6. **一次做对不算掌握。** 达标只是"暂定掌握"；只有跨时间再次做对才算**已验证掌握**，
+   且掌握度随时间衰减、到期必须叫回来复检。系统的义务不是把人送过及格线就撒手，
+   而是陪到他真的会、并且能证明。
+   实现见 `packages/state/verification.py`；衰减**只算不写**——掌握度必须始终等于
+   事件流折叠的结果，否则 `make replay` 失去意义（与铁律 1 同源）。
+
 ---
 
-## 3. 两条设计范式（决定功能长什么样）
+## 3. 四条设计范式（决定功能长什么样）
 
 ### 3.1 拉取式学习（Pull, not Push）
 
@@ -74,6 +80,29 @@
 
 追问降级机制是为了防止挫败感摧毁动机，**不是为了让学生轻松**。
 
+### 3.3 掌握的三个问题
+
+"会不会"是 BKT 回答的。但只回答这一个问题的系统，会在三个地方骗自己：
+
+| 问题 | 不问的后果 | 本系统的答法 |
+|---|---|---|
+| **验证了吗** | 当堂练到做对就记为掌握，下周全忘 | 两次做对间隔 ≥ `verify_gap_days` 才算已验证 |
+| **还在吗** | 学期初的达标一直挂在那里，无人回访 | 按半衰期衰减，掉到 `retention_threshold` 以下进复检队列 |
+| **是自己挣来的吗** | 把认知外包出去的正确率当成学习成效 | 区分"提示前做对"与"提示后做对"，提示依赖度可见 |
+
+第三条尤其要小心：**提示依赖度是诊断指标，禁止作为优化目标、激励对象或排名依据**。
+指标一旦被当成目标就会被优化，然后失去意义——这与铁律 5 是同一条道理。
+
+三者全部是**派生视图**，只读事件流。它们让"陪到你真正掌握"这句话变成可判定的规则，
+而不是一句产品文案。
+
+### 3.4 顺着学法，而不只是顺着难度
+
+自适应若只做难度调节，仍然是千人一面的另一种形态。系统必须记住：
+**对这个学生而言，反例质疑管用、类比迁移不管用**。
+`verification.style_effectiveness` 按实测有效率给追问方式排序，反哺 `AskingStrategy`；
+证据不足时不猜，用默认序。判定"是否有进展"走确定性规则，不是模型说了算。
+
 ---
 
 ## 4. 技术栈
@@ -85,6 +114,7 @@
 | 任务队列 | Celery + Redis | 同步调用 | 仅用于异步批处理，尚不需要 |
 | 大模型 | Qwen / DeepSeek，OpenAI 兼容接口 | 同左 + 无 Key 时离线降级 | 经 `packages/llm` 封装，可整体替换 |
 | 前端 | React + TypeScript + Tailwind | 原生 JS + CSS，零构建 | 先保证零依赖可演示 |
+| 3D 图谱 | three.js | three.js（**本地 vendor，不走 CDN**） | 演示环境常常没有外网 |
 | 代码信号源 | 自建 Gitea + CI | `adapters/gitea` 读本地 git log | 换成 API 调用即可 |
 | 测试 | pytest + pytest-asyncio | unittest（79 用例） | 用例可直接被 pytest 收集 |
 
@@ -102,6 +132,9 @@
 /apps
   /api                FastAPI，仅路由与鉴权，无业务逻辑
   /web                前端
+    graph3d.js        知识宇宙：three.js 渲染壳（不可单测）
+    kg-core.js        知识宇宙：布局物理 / 色阶 / 降噪（纯逻辑，Node 可测）
+    vendor/           three.js 与 OrbitControls 的本地副本
 /packages
   /graph              L1 知识图谱：知识点、依赖边、能力模块、任务-知识点映射
   /state              L2 学生状态：BKT、掌握度、能力画像
@@ -111,6 +144,8 @@
   /adapters           项目数据适配器（每项目一个）
   /llm                大模型统一封装（可替换层）
   /errors             错误模式库（核心资产）
+  /state/verification.py   掌握的质量：跨时间验证、遗忘复检、提示依赖、学法有效率
+  /agents/universe.py      知识宇宙的视图投影（只读 L1+L2，什么都不写）
 /migrations
 /scripts
 /docs
@@ -160,6 +195,10 @@ ProjectSignal(id, project_id, student_id, signal_class, value,
 
 **BKT 参数**按知识点存：`p_init, p_transit, p_slip, p_guess`，冷启动用课程级默认值。
 
+**掌握的质量不建表**：验证状态、遗忘后估计、提示依赖度全部由事件流现算
+（`packages/state/verification.py`）。凡是能从事件流算出来的，就不要落第二份真相——
+多一张表就多一个会和事件流对不上的地方。
+
 **LearningEvent 是只追加事件流**——任何状态（含 engagement）都可从事件流重算，这是可审计性的基础。禁止直接 UPDATE 掌握度而不写事件。
 
 ---
@@ -189,6 +228,10 @@ collaboration    协作记录：看板流转、评审互动、接口沟通
 - 任何 LLM 调用必须经 `packages/llm`，禁止业务代码直接 import openai
 - 数据库写操作走 repository 层，禁止在 agent 里写 SQL
 - 新增功能必须附 pytest；涉及状态变更的必须有事件流重算测试
+- **前端与后端同构**：可确定性计算的部分抽成纯模块（`kg-core.js`）并单测，
+  渲染壳只管画。这与 agents 的 `plan()` / `express()` 是同一条规矩
+- **前端不得引入 CDN 依赖**：第三方库一律 vendor 到 `apps/web/vendor/`，
+  演示环境必须在没有外网时完整可用
 
 ---
 
@@ -204,6 +247,7 @@ make test                        # 全量测试
 make test-state                  # 仅测状态层（改 BKT 后必跑）
 make check                       # 架构铁律静态检查（本文件第 2、11 节）
 make lint                        # ruff；无 ruff 时退化为内置自检
+node tests/web_core.test.mjs     # 知识宇宙的布局物理 / 色阶 / 降噪（已并入 make test）
 make replay STUDENT=<id>         # 从事件流重算状态，校验一致性
 make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑）
 ```
@@ -225,6 +269,10 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 | 破关 | breakthrough | 攻克一个根因知识点 |
 | 回归 | comeback | 中断后重新活跃 |
 | 追问降级 | escalation | 学生反复卡住时逐级给出更多提示 |
+| 已验证掌握 | validated mastery | 跨时间再次做对，而非当堂练到做对 |
+| 复检 | retention review | 掌握度按遗忘曲线掉到阈值以下，需重新确认 |
+| 提示依赖度 | assistance dependency | 有多少"做对"发生在提示之后（诊断用，非考核用）|
+| 知识宇宙 | knowledge universe | 3D 知识图谱视图 |
 | 免听不免考 | — | 理论课可自学但必须参加统考 |
 | 30/70 考核 | — | 专业课 30% 笔试 + 70% 实践 |
 
@@ -243,6 +291,10 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 - ❌ 在 `graph` / `state` 中引入对具体大模型的依赖
 - ❌ 为某个特定项目在核心代码写 if 分支（应写 adapter）
 - ❌ 直接 UPDATE MasteryState 而不写 LearningEvent
+- ❌ 把遗忘衰减写回 MasteryState（衰减是视图，不是事实）
+- ❌ 把"提示依赖度""无提示做对率"做成激励、排名或考核指标
+- ❌ 把一次做对当成掌握并从此不再回访
+- ❌ 前端引用 CDN 上的 JS/CSS/字体
 
 ---
 
@@ -263,5 +315,8 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 **Phase 3（已完成主体）：** 拉取式缺口调度与挡路度排序、项目适配器（AGV/视觉/Gitea）、
 只奖励坚持的激励系统、学生端与副驾驶。
 
+**Phase 3.5（已完成）：** 掌握的质量（跨时间验证 / 遗忘复检 / 提示依赖 / 学法适配）、
+知识宇宙 3D 图谱（three.js，含根因链点亮）。
+
 **待推进：** Phase 4 效果验证的数据采集（对照组、延迟后测），
-以及 `docs/decisions.md` 里 13 项参数的教师拍板。
+以及 `docs/decisions.md` 里 16 项参数的教师拍板。

@@ -44,6 +44,13 @@ class TeachingConfig:
     comeback_gap_days: int = 3
     # 冷启动保护：证据少于该条数时报告标注"数据不足"
     min_evidence_for_report: int = 3
+    # ---- 掌握的质量（见 packages/state/verification.py）----
+    # 遗忘曲线半衰期（天）：掌握度按此速度衰减，只用于"该复习了"的判定，不写回库
+    retention_halflife_days: float = 21.0
+    # 衰减后低于该值即触发复检
+    retention_threshold: float = 0.6
+    # 两次做对相隔多少天才算"已验证掌握"——挡住当堂反复练到做对
+    verify_gap_days: float = 7.0
     # BKT 课程级默认参数（冷启动）
     bkt_default: dict = field(
         default_factory=lambda: {
