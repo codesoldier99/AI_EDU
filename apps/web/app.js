@@ -813,7 +813,18 @@ async function render() {
 }
 
 async function boot() {
-  document.documentElement.dataset.theme = localStorage.getItem('aiedu.theme') || 'light';
+  // 深链：?token=teacher:T001&tab=universe&student=7
+  // 演示时可以直接把链接发给人，省掉"先切身份再点标签"的口头指挥
+  const qp = new URLSearchParams(location.search);
+  if (qp.get('token')) {
+    S.token = qp.get('token');
+    localStorage.setItem('aiedu.token', S.token);
+  }
+  if (qp.get('student')) S.pickStudent = Number(qp.get('student'));
+  if (qp.get('tab')) S.tab = qp.get('tab');
+
+  document.documentElement.dataset.theme =
+    qp.get('theme') || localStorage.getItem('aiedu.theme') || 'light';
   $('#btn-theme').onclick = () => {
     const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
     document.documentElement.dataset.theme = t;

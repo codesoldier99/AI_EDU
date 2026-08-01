@@ -306,7 +306,7 @@ python3 aiedu.py <同名子命令>        # 无 make 环境的等价入口
 - [`docs/kp-annotation.md`](docs/kp-annotation.md) —— 知识点标注规范（教师用）
 - [`docs/api.md`](docs/api.md) —— 接口清单
 - [`docs/demo.md`](docs/demo.md) —— **汇报与演示预案**（会前检查单、四段演示逐步照做、Q&A 预案）
-- [`docs/slides/`](docs/slides/) —— 汇报 PPT（32 页，pptx + pdf），由 `scripts/make_deck.py` 生成
+- [`docs/slides/`](docs/slides/) —— 汇报 PPT（12 页，pptx + pdf），由 `scripts/make_deck.py` 生成
 - [`docs/decisions.md`](docs/decisions.md) —— 待教师团队拍板的参数
 - [`docs/learnvector-研判.md`](docs/learnvector-研判.md) —— LearnVector 研判：吸收什么、不跟什么
 - [`CLAUDE.md`](CLAUDE.md) —— 架构铁律与开发规范（每次开工必读）

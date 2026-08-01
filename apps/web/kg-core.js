@@ -136,7 +136,7 @@ export class Layout {
       if (this.mode === 'depend') {
         const targetY = (d.depth / this.maxDepth - 0.5) * 190;
         vel[i * 3 + 1] += (targetY - pos[i * 3 + 1]) * 0.06;
-        k = 0.004;
+        k = 0.011;      // 向心力偏强：让这块"板"收紧，否则在屏幕上就只剩小点
       } else if (this.mode === 'cluster') {
         const c = this.clusterCenter(d.unit_idx);
         cx = c[0]; cy = c[1]; cz = c[2];

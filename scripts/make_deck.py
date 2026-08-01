@@ -141,6 +141,40 @@ def build_slide(spec: dict, page: int, total: int) -> str:
                      _para(spec.get("note", ""), 14, "C7DAF7", space_before=0))
         return _slide_xml(sh)
 
+    if kind == "twobig":
+        # 两个并列的大结论：一眼看到，不需要读
+        sh += _txbox(3, "title", M, TOP - 120000, W - 2 * M, 620000,
+                     _para(spec["title"], 28, INK, bold=True, space_before=0, align="ctr"))
+        if spec.get("sub"):
+            sh += _txbox(4, "sub", M, TOP + 400000, W - 2 * M, 420000,
+                         _para(spec["sub"], 15, MUTED, space_before=0, align="ctr"))
+        panels = spec["panels"]
+        gap = 300000
+        pw = (W - 2 * M - gap) // 2
+        py, ph = TOP + 950000, 3500000
+        for i, (big, label, lines, color) in enumerate(panels):
+            x = M + i * (pw + gap)
+            sh += _rect(idx, x, py, pw, ph, color, 10000)
+            idx += 1
+            sh += _txbox(idx, f"b{i}", x, py + 260000, pw, 1500000,
+                         _para(big, 96, color, bold=True, space_before=0, align="ctr"))
+            idx += 1
+            sh += _txbox(idx, f"l{i}", x, py + 1560000, pw, 500000,
+                         _para(label, 19, INK, bold=True, space_before=0, align="ctr"))
+            idx += 1
+            body = "".join(_para(t, 14, "4A5561", space_before=300, align="ctr")
+                           for t in lines)
+            sh += _txbox(idx, f"t{i}", x + 200000, py + 2080000, pw - 400000,
+                         ph - 2100000, body)
+            idx += 1
+        if spec.get("note"):
+            sh += _txbox(idx, "note", M, H - 780000, W - 2 * M, 460000,
+                         _para(spec["note"], 14, MUTED, space_before=0, align="ctr"))
+            idx += 1
+        sh += _txbox(90, "pg", W - M - 900000, H - 480000, 900000, 300000,
+                     _para(f"{page} / {total}", 11, MUTED, space_before=0, align="r"))
+        return _slide_xml(sh)
+
     if kind == "section":
         sh += _rect(2, 0, 0, W, H, "F7F9FC", 100000)
         sh += _rect(3, M, 2500000, 180000, 900000, ACCENT)

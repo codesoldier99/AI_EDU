@@ -76,10 +76,15 @@ export function mountUniverse(host, opts) {
   controls.maxDistance = 900;
   controls.autoRotateSpeed = 0.45;
 
-  scene.add(new THREE.AmbientLight(0xffffff, 1.15));
-  const key = new THREE.DirectionalLight(0xbcd8ff, 1.5);
+  // 打光偏"均匀"而非"戏剧"：颜色编码的是掌握度，不能被阴影改写
+  scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+  scene.add(new THREE.HemisphereLight(0xdfeaff, 0x223047, 1.0));
+  const key = new THREE.DirectionalLight(0xdcebff, 1.1);
   key.position.set(80, 140, 120);
   scene.add(key);
+  const fill = new THREE.DirectionalLight(0x9ec2ff, 0.6);
+  fill.position.set(-120, -60, -90);
+  scene.add(fill);
 
   // 星空：给"知识宇宙"一点氛围，同时提供旋转时的空间参照
   {
@@ -102,9 +107,7 @@ export function mountUniverse(host, opts) {
   const layout = new Layout(nodes, edges, data.max_depth, data.units.length);
   const N = nodes.length;
   const sphereGeo = new THREE.IcosahedronGeometry(1, 2);
-  const nodeMat = new THREE.MeshStandardMaterial({
-    roughness: 0.42, metalness: 0.12, emissiveIntensity: 0.55,
-  });
+  const nodeMat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.0 });
   const mesh = new THREE.InstancedMesh(sphereGeo, nodeMat, N);
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   mesh.count = N;
@@ -139,7 +142,7 @@ export function mountUniverse(host, opts) {
   edgeGeo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
   edgeGeo.setAttribute('color', new THREE.BufferAttribute(edgeCol, 3));
   const edgeMesh = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({
-    vertexColors: true, transparent: true, opacity: 0.55,
+    vertexColors: true, transparent: true, opacity: 0.8,
   }));
   scene.add(edgeMesh);
 
@@ -147,7 +150,7 @@ export function mountUniverse(host, opts) {
   const S = {
     selected: null, hovered: null, focusSet: null, pathSet: null,
     filterUnits: new Set(), onlyGap: false, onlyDue: false, query: '',
-    labelCap: 14, autoRotate: false, mode: 'depend',
+    labelCap: 22, autoRotate: false, mode: 'depend',
   };
   const neighbors = new Map(nodes.map((d) => [d.id, new Set()]));
   for (const [a, b] of edges) {
@@ -250,6 +253,9 @@ export function mountUniverse(host, opts) {
       labelPool.push(el);
     }
     const w = canvasBox.clientWidth, h = canvasBox.clientHeight;
+    // 屏幕空间避让：按优先级贪心放置，与已放置标签相交的直接不显示。
+    // 文字互相压住时，"显示了很多标签"等于"一个都没读到"。
+    const placed = [];
     labelPool.forEach((el, k) => {
       const i = take[k];
       if (i === undefined) { el.style.display = 'none'; return; }
@@ -257,12 +263,18 @@ export function mountUniverse(host, opts) {
       v3.set(layout.pos[i * 3], layout.pos[i * 3 + 1], layout.pos[i * 3 + 2]);
       v3.project(camera);
       if (v3.z > 1) { el.style.display = 'none'; return; }
+      const x = (v3.x * 0.5 + 0.5) * w, y = (-v3.y * 0.5 + 0.5) * h;
+      const halfW = d.name.length * 6.5 + 6, halfH = 10;
+      const must = S.selected === d.id || S.hovered === d.id || S.pathSet?.has(d.id);
+      const hit = placed.some((r) =>
+        Math.abs(r.x - x) < r.halfW + halfW && Math.abs(r.y - y) < r.halfH + halfH);
+      if (hit && !must) { el.style.display = 'none'; return; }
+      placed.push({ x, y, halfW, halfH });
       el.style.display = 'block';
       el.textContent = d.name;
       el.className = 'kg-label' + (S.selected === d.id ? ' sel' : '')
         + (S.pathSet?.has(d.id) ? ' path' : '');
-      el.style.transform =
-        `translate(-50%,-50%) translate(${(v3.x * 0.5 + 0.5) * w}px,${(-v3.y * 0.5 + 0.5) * h}px)`;
+      el.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px)`;
     });
   }
 
@@ -308,8 +320,50 @@ export function mountUniverse(host, opts) {
     renderPanel();
   }
 
-  // ---- 相机飞行 ----
+  // ---- 相机自适应 ----
+  /* 力导向的展开尺度随节点数与模式变化，写死的相机位置必然不是撑爆就是太远。
+     每次布局收敛（或切换模式）后按包围盒重新取景。 */
   let fly = null;
+  function fitCamera(padding = 1.18, animate = true, subset = null) {
+    const p = layout.pos;
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    let any = false;
+    for (let i = 0; i < N; i++) {
+      if (subset ? !subset.has(nodes[i].id) : !vis[i]) continue;
+      any = true;
+      minX = Math.min(minX, p[i * 3]); maxX = Math.max(maxX, p[i * 3]);
+      minY = Math.min(minY, p[i * 3 + 1]); maxY = Math.max(maxY, p[i * 3 + 1]);
+      minZ = Math.min(minZ, p[i * 3 + 2]); maxZ = Math.max(maxZ, p[i * 3 + 2]);
+    }
+    if (!any) return;
+    const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+    // 依赖分层下图谱是一块"扁平的板"：用包围球半径会把相机推得太远，画面里只剩小点。
+    // 正确做法是横竖分别算需要多远才装得下，取更受限的那个，再补上纵深的一半。
+    const hx = Math.max((maxX - minX) / 2, 10);
+    const hy = Math.max((maxY - minY) / 2, 10);
+    const hz = Math.max((maxZ - minZ) / 2, 10);
+    const fovV = (camera.fov * Math.PI) / 180;
+    const fovH = 2 * Math.atan(Math.tan(fovV / 2) * camera.aspect);
+    const horiz = Math.max(hx, hz);
+    const dist = Math.max(horiz / Math.tan(fovH / 2), hy / Math.tan(fovV / 2))
+      * padding + Math.min(hx, hz);
+    const target = new THREE.Vector3(cx, cy, cz);
+    const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
+    if (dir.lengthSq() < 1e-6) dir.set(0.35, 0.25, 1);
+    dir.normalize().multiplyScalar(dist);
+    if (!animate) {
+      camera.position.copy(target).add(dir);
+      controls.target.copy(target);
+      return;
+    }
+    fly = {
+      t: 0, fromCam: camera.position.clone(), toCam: target.clone().add(dir),
+      fromTgt: controls.target.clone(), toTgt: target,
+    };
+  }
+
+  // ---- 相机飞行 ----
   function flyTo(id) {
     const i = layout.index.get(id);
     if (i === undefined) return;
@@ -331,10 +385,13 @@ export function mountUniverse(host, opts) {
     const r = await opts.fetchRootCause(id);
     if (!r || !r.path || r.path.length < 2) {
       S.pathSet = new Set([id]);
+      flyTo(id);
     } else {
       S.pathSet = new Set(r.path);
       S.focusSet = new Set(r.path);
-      flyTo(r.root_kp_id);
+      // 框住**整条链**，而不是飞到根因那一个点上——
+      // 要让人看见的是"从症状到病根这一路"，不是终点。
+      fitCamera(1.6, true, S.pathSet);
     }
     renderPanel(r);
   }
@@ -356,9 +413,14 @@ export function mountUniverse(host, opts) {
       b.textContent = l.name;
       b.title = l.hint;
       b.className = S.mode === l.id ? 'on' : '';
-      b.onclick = () => { S.mode = l.id; layout.setMode(l.id); renderUI(); };
+      b.onclick = () => { S.mode = l.id; layout.setMode(l.id); fitted = false; renderUI(); };
       bar.append(b);
     }
+    const fitBtn = document.createElement('button');
+    fitBtn.textContent = '适应视图';
+    fitBtn.title = '把当前可见的知识点全部装进画面';
+    fitBtn.onclick = () => fitCamera();
+    bar.append(fitBtn);
     const rot = document.createElement('button');
     rot.textContent = S.autoRotate ? '停止自转' : '自动旋转';
     rot.className = S.autoRotate ? 'on' : '';
@@ -407,7 +469,7 @@ export function mountUniverse(host, opts) {
     reset.onclick = () => {
       S.query = ''; S.filterUnits = new Set(); S.onlyGap = S.onlyDue = false;
       select(null); vis = visible(); renderUI();
-      camera.position.set(0, 40, 300); controls.target.set(0, 0, 0);
+      vis = visible(); fitCamera();
     };
     row2.append(reset);
     ui.append(row2);
@@ -491,11 +553,14 @@ export function mountUniverse(host, opts) {
   ro.observe(canvasBox);
   resize();
 
+  let fitted = false;
   function tick(t) {
     if (stopped) return;
     raf = requestAnimationFrame(tick);
     if (document.hidden) return;                  // 切走时不烧 CPU
-    layout.step();
+    const moving = layout.step();
+    if (!moving && !fitted) { fitted = true; fitCamera(); }
+    if (moving && fitted && layout.alpha > 0.9) fitted = false;   // 换模式后重新取景
     controls.autoRotate = S.autoRotate;
     if (fly) {
       fly.t = Math.min(1, fly.t + 0.02);
