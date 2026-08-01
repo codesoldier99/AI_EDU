@@ -59,7 +59,7 @@ export function mountUniverse(host, opts) {
   // ---- three.js 基础 ----
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(C.bg);
-  scene.fog = new THREE.FogExp2(C.bg, 0.0022);
+  scene.fog = new THREE.FogExp2(C.bg, 0.0022);   // 密度每帧按相机距离自适应
 
   const camera = new THREE.PerspectiveCamera(52, 1, 0.5, 3000);
   camera.position.set(0, 40, 300);
@@ -324,7 +324,7 @@ export function mountUniverse(host, opts) {
   /* 力导向的展开尺度随节点数与模式变化，写死的相机位置必然不是撑爆就是太远。
      每次布局收敛（或切换模式）后按包围盒重新取景。 */
   let fly = null;
-  function fitCamera(padding = 1.18, animate = true, subset = null) {
+  function fitCamera(padding = 1.08, animate = true, subset = null) {
     const p = layout.pos;
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
@@ -347,7 +347,7 @@ export function mountUniverse(host, opts) {
     const fovH = 2 * Math.atan(Math.tan(fovV / 2) * camera.aspect);
     const horiz = Math.max(hx, hz);
     const dist = Math.max(horiz / Math.tan(fovH / 2), hy / Math.tan(fovV / 2))
-      * padding + Math.min(hx, hz);
+      * padding + Math.min(hx, hz) * 0.5;
     const target = new THREE.Vector3(cx, cy, cz);
     const dir = new THREE.Vector3().subVectors(camera.position, controls.target);
     if (dir.lengthSq() < 1e-6) dir.set(0.35, 0.25, 1);
@@ -413,7 +413,11 @@ export function mountUniverse(host, opts) {
       b.textContent = l.name;
       b.title = l.hint;
       b.className = S.mode === l.id ? 'on' : '';
-      b.onclick = () => { S.mode = l.id; layout.setMode(l.id); fitted = false; renderUI(); };
+      b.onclick = () => {
+        S.mode = l.id; layout.setMode(l.id);
+        fitted = midFitted = false;
+        renderUI();
+      };
       bar.append(b);
     }
     const fitBtn = document.createElement('button');
@@ -553,14 +557,17 @@ export function mountUniverse(host, opts) {
   ro.observe(canvasBox);
   resize();
 
-  let fitted = false;
+  let fitted = false, midFitted = false;
   function tick(t) {
     if (stopped) return;
     raf = requestAnimationFrame(tick);
     if (document.hidden) return;                  // 切走时不烧 CPU
     const moving = layout.step();
+    // 取两次景：布局大致成形时先框一次（软件渲染下收敛很慢，不能干等），
+    // 完全静止后再框一次定稿。
+    if (moving && !midFitted && layout.alpha < 0.35) { midFitted = true; fitCamera(); }
     if (!moving && !fitted) { fitted = true; fitCamera(); }
-    if (moving && fitted && layout.alpha > 0.9) fitted = false;   // 换模式后重新取景
+    if (moving && layout.alpha > 0.9) { fitted = false; midFitted = false; }
     controls.autoRotate = S.autoRotate;
     if (fly) {
       fly.t = Math.min(1, fly.t + 0.02);
@@ -570,6 +577,8 @@ export function mountUniverse(host, opts) {
       if (fly.t >= 1) fly = null;
     }
     controls.update();
+    // 雾只用来给深度线索，不该在远景里把整张图压暗
+    scene.fog.density = 0.62 / Math.max(120, camera.position.distanceTo(controls.target));
     updateInstances(t);
     updateLabels();
     renderer.render(scene, camera);

@@ -95,13 +95,13 @@ export class Layout {
 
   clusterCenter(unitIdx) {
     const a = (unitIdx / this.nUnits) * Math.PI * 2;
-    return [Math.cos(a) * 105, ((unitIdx % 3) - 1) * 26, Math.sin(a) * 105];
+    return [Math.cos(a) * 200, ((unitIdx % 3) - 1) * 55, Math.sin(a) * 200];
   }
 
   step() {
     if (this.alpha < 0.005) return false;
     const { pos, vel, n } = this;
-    const REP = this.mode === 'cluster' ? 900 : 1500;
+    const REP = this.mode === 'cluster' ? 620 : 1500;
     const SPRING = 0.012, REST = 26;
 
     for (let i = 0; i < n; i++) {
@@ -140,7 +140,7 @@ export class Layout {
       } else if (this.mode === 'cluster') {
         const c = this.clusterCenter(d.unit_idx);
         cx = c[0]; cy = c[1]; cz = c[2];
-        k = 0.020;                                  // Strength
+        k = 0.032;                                  // Strength：簇心吸引要压过斥力
       } else if (this.mode === 'sphere') {
         const a = (d.unit_idx / this.nUnits) * Math.PI * 2;
         const phi = (d.depth / this.maxDepth) * Math.PI;

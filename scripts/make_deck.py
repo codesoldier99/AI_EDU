@@ -103,6 +103,26 @@ def _table(idx: int, x: int, y: int, cx: int, rows: list[list[str]],
     )
 
 
+def _pic(idx: int, rid: str, x: int, y: int, cx: int, cy: int) -> str:
+    return (
+        f'<p:pic><p:nvPicPr><p:cNvPr id="{idx}" name="img{idx}"/>'
+        f'<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>'
+        f'<p:blipFill><a:blip r:embed="{rid}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>'
+        f'<p:spPr><a:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{cy}"/></a:xfrm>'
+        f'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'
+        f'<a:ln w="9525"><a:solidFill><a:srgbClr val="D5DBE3"/></a:solidFill></a:ln>'
+        f'</p:spPr></p:pic>'
+    )
+
+
+def _png_size(path: Path) -> tuple[int, int]:
+    import struct
+
+    with path.open("rb") as fh:
+        head = fh.read(24)
+    return struct.unpack(">II", head[16:24])
+
+
 def _slide_xml(shapes: str) -> str:
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -225,6 +245,16 @@ def build_slide(spec: dict, page: int, total: int) -> str:
             idx += 1
         y += 400000 + 330000 * max(len(c[1]) for c in spec["cols"])
 
+    if spec.get("image"):
+        iw, ih = spec["_imgsize"]
+        avail_w = W - 2 * M
+        avail_h = H - y - 900000
+        scale = min(avail_w / iw, avail_h / ih)
+        cw, ch = int(iw * scale), int(ih * scale)
+        sh += _pic(idx, spec["_rid"], M + (avail_w - cw) // 2, y, cw, ch)
+        idx += 1
+        y += ch + 200000
+
     if spec.get("bullets"):
         body = ""
         for b in spec["bullets"]:
@@ -310,7 +340,10 @@ LAYOUT = (
 )
 
 
-def write_pptx(slides: list[str], out: Path, title: str) -> None:
+def write_pptx(slides: list[str], out: Path, title: str,
+               media: dict[int, Path] | None = None) -> None:
+    """media: {幻灯片序号(1起) -> 图片路径}"""
+    media = media or {}
     n = len(slides)
     ct = ['<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
           '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -328,6 +361,8 @@ def write_pptx(slides: list[str], out: Path, title: str) -> None:
           'openxmlformats-package.core-properties+xml"/>'
           '<Override PartName="/docProps/app.xml" ContentType="application/vnd.'
           'openxmlformats-officedocument.extended-properties+xml"/>']
+    if media:
+        ct.append('<Default Extension="png" ContentType="image/png"/>')
     for i in range(1, n + 1):
         ct.append(f'<Override PartName="/ppt/slides/slide{i}.xml" ContentType="application/'
                   'vnd.openxmlformats-officedocument.presentationml.slide+xml"/>')
@@ -396,8 +431,11 @@ def write_pptx(slides: list[str], out: Path, title: str) -> None:
             ("slideMaster", "../slideMasters/slideMaster1.xml")))
         for i, s in enumerate(slides, 1):
             z.writestr(f"ppt/slides/slide{i}.xml", s)
-            z.writestr(f"ppt/slides/_rels/slide{i}.xml.rels", rels(
-                ("slideLayout", "../slideLayouts/slideLayout1.xml")))
+            pairs = [("slideLayout", "../slideLayouts/slideLayout1.xml")]
+            if i in media:
+                z.writestr(f"ppt/media/image{i}.png", media[i].read_bytes())
+                pairs.append(("image", f"../media/image{i}.png"))
+            z.writestr(f"ppt/slides/_rels/slide{i}.xml.rels", rels(*pairs))
 
 
 def main() -> None:
@@ -405,9 +443,19 @@ def main() -> None:
 
     specs = build_specs()
     total = len(specs)
+    media: dict[int, Path] = {}
+    for i, spec in enumerate(specs, 1):
+        if spec.get("image"):
+            img = ROOT / spec["image"]
+            if img.exists():
+                spec["_imgsize"] = _png_size(img)
+                spec["_rid"] = "rId2"      # slideLayout 占 rId1，图片顺位 rId2
+                media[i] = img
+            else:
+                spec.pop("image")
     slides = [build_slide(s, i, total) for i, s in enumerate(specs, 1)]
     out = ROOT / "docs" / "slides" / "院长实验班AI教学系统_汇报.pptx"
-    write_pptx(slides, out, "院长实验班 AI 教学系统 · 汇报")
+    write_pptx(slides, out, "院长实验班 AI 教学系统 · 汇报", media)
     print(f"已生成 {out}  （{total} 页）")
 
 

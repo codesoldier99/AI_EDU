@@ -204,6 +204,12 @@ make gap STUDENT=1 TASK=T-AGV-3
 
 ## 知识宇宙：3D 知识图谱
 
+![根因回溯：整条链被点亮](docs/images/knowledge-universe.png)
+
+*点一个薄弱点按【根因回溯】，系统沿依赖边把整条链点亮并把镜头框到这条链上——
+图中蓝色那条就是「反向传播算法 ← … ← 线性回归模型形式」，
+与班级诊断报告走同一个算法、同一份图谱结构。*
+
 `apps/web/graph3d.js`，three.js 本地 vendor，**不走 CDN，断网可用**。
 
 - **四种布局**：依赖分层（Y = 依赖深度，前置在下）/ 章节星系（层次聚类）/
@@ -218,8 +224,15 @@ make gap STUDENT=1 TASK=T-AGV-3
   标签用 HTML 覆盖层（中文清晰）并做降噪，同一时刻最多 14 个；
   500 节点单步 3.2ms，远低于一帧预算
 
+![章节星系布局](docs/images/knowledge-universe-cluster.png)
+
+*章节星系布局。琥珀色光环 = 该复习了，青绿描边 = 已验证掌握。*
+
 渲染壳无法单测，但布局物理、色阶、降噪策略抽在 `apps/web/kg-core.js`，
 17 个用例覆盖（含"依赖深度与 Y 坐标相关系数 > 0.9"这类断言）。
+
+**深链**：`http://127.0.0.1:8900/?token=teacher:T001&tab=universe&student=7`
+——演示时直接发链接，省掉"先切身份再点标签"的口头指挥。
 
 ---
 
