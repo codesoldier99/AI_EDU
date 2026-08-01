@@ -1,6 +1,6 @@
 """生成汇报用 PPTX（纯标准库，不依赖 python-pptx / LibreOffice）。
 
-    python3 scripts/make_deck.py            # → docs/slides/苏格拉底式AI教学系统_汇报.pptx
+    python3 scripts/make_deck.py            # → docs/slides/院长实验班AI教学系统_汇报.pptx
 
 幻灯片内容写在 deck_content.py 里，改文案不用碰这里。
 所有数字都从当前数据库读，避免 PPT 与系统对不上。
@@ -372,8 +372,8 @@ def main() -> None:
     specs = build_specs()
     total = len(specs)
     slides = [build_slide(s, i, total) for i, s in enumerate(specs, 1)]
-    out = ROOT / "docs" / "slides" / "苏格拉底式AI教学系统_汇报.pptx"
-    write_pptx(slides, out, "苏格拉底式 AI 教学系统 · 汇报")
+    out = ROOT / "docs" / "slides" / "院长实验班AI教学系统_汇报.pptx"
+    write_pptx(slides, out, "院长实验班 AI 教学系统 · 汇报")
     print(f"已生成 {out}  （{total} 页）")
 
 

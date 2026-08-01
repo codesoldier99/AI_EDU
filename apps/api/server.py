@@ -30,7 +30,7 @@ def main() -> None:
     db = get_db()
     db.migrate(verbose=False)
     app = create_app()
-    print("苏格拉底式 AI 教学系统 · 本地演示")
+    print("院长实验班 AI 教学系统 · 本地演示")
     print(f"  数据库：{db.path}")
     print(f"  大模型：{'离线降级表达器（未配置 API Key）' if _degraded() else CONFIG.llm_model}")
     app.serve(CONFIG.host, CONFIG.port)

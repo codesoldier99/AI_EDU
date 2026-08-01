@@ -4,7 +4,7 @@ PORT ?= 8900
 .PHONY: help dev migrate seed demo mock-llm test test-state lint replay gap clean reset check
 
 help:
-	@echo "苏格拉底式 AI 教学系统"
+	@echo "院长实验班 AI 教学系统"
 	@echo ""
 	@echo "  make setup                    一键就绪（迁移 + 种子 + 演示数据）"
 	@echo "  make dev                      启动本地环境（API + 前端，默认 :$(PORT)）"
