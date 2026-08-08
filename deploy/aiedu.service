@@ -1,0 +1,28 @@
+# systemd 单元模板。安装：
+#   sudo cp deploy/aiedu.service /etc/systemd/system/aiedu.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now aiedu
+#
+# 详见 docs/deployment.md 第 3.5 节。
+[Unit]
+Description=院长实验班 AI 教学系统
+After=network.target
+
+[Service]
+Type=simple
+User=aiedu
+Group=aiedu
+WorkingDirectory=/opt/aiedu/app
+EnvironmentFile=-/opt/aiedu/app.env
+ExecStart=/usr/bin/python3.11 -m apps.api.server
+Restart=on-failure
+RestartSec=3
+
+# 沙箱加固：只放开真正需要写的目录（SQLite 数据库与运行日志所在处）
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/aiedu/app/var
+
+[Install]
+WantedBy=multi-user.target

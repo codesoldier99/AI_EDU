@@ -1,0 +1,38 @@
+# nginx 反向代理示例。安装：
+#   sudo cp deploy/nginx.conf.example /etc/nginx/sites-available/aiedu
+#   把下面的 server_name 换成实际域名/内网地址，再：
+#   sudo ln -s /etc/nginx/sites-available/aiedu /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# 有域名可接着跑：sudo certbot --nginx -d <你的域名>
+# 详见 docs/deployment.md 第 3.6 节、第 4 节（鉴权方案 B 的 Basic Auth 位置见下）。
+
+server {
+    listen 80;
+    server_name aiedu.example.edu.cn;   # ← 换成实际域名或内网地址
+
+    # 方案 B（临时补丁）：给整个站点加一道 Basic Auth，
+    # 弥补当前 token 鉴权可枚举的短板。启用前：
+    #   sudo apt install -y apache2-utils
+    #   sudo htpasswd -c /etc/nginx/aiedu.htpasswd <用户名>
+    # auth_basic "院长实验班 AI 教学系统";
+    # auth_basic_user_file /etc/nginx/aiedu.htpasswd;
+
+    location / {
+        proxy_pass http://127.0.0.1:8900;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # 应用自身已经在响应头里加了 CORS 与 Content-Length，这里不用重复处理
+    }
+
+    # 静态资源（three.js vendor 等）体积较大，交给 nginx 直接托管可以更快，
+    # 但不是必需——apps/api/server.py 自带静态文件服务，量级足够小，
+    # 若追求极致可以取消下面注释：
+    # location /vendor/ {
+    #     alias /opt/aiedu/app/apps/web/vendor/;
+    #     expires 30d;
+    # }
+}
