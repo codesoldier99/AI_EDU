@@ -70,6 +70,12 @@ def _to_batch_commands(plan: DeckPlan) -> list[dict]:
             props["subtitle"] = s["subtitle"]
         if s.get("bullets"):
             props["bullets"] = ";".join(s["bullets"])
+        if s.get("analogy"):
+            props["analogy"] = s["analogy"]
+        if s.get("example"):
+            props["example"] = s["example"]
+        if s.get("pitfalls"):
+            props["pitfalls"] = ";".join(s["pitfalls"])
         chart = s.get("chart")
         if chart:
             props["chart_type"] = chart.get("chart_type", "bar")
@@ -124,16 +130,23 @@ def _slide_to_spec(s: dict) -> dict:
         return {"kind": "cover", "title": s.get("title", ""),
                 "bullets": [s.get("subtitle", "")] if s.get("subtitle") else [],
                 "note": ""}
-    if layout == "chart" and s.get("chart"):
+    if layout == "barchart" and s.get("chart"):
         chart = s["chart"]
-        rows = [["类别", *(ser.get("name", "") for ser in chart.get("series", []))]]
-        for i, cat in enumerate(chart.get("categories", [])):
-            rows.append([str(cat)] + [
-                str(ser.get("values", [])[i] if i < len(ser.get("values", [])) else "")
-                for ser in chart.get("series", [])
-            ])
-        return {"kind": "bullets", "title": s.get("title", ""), "table": rows,
+        series = chart.get("series", [{}])[0]
+        bars = [
+            {"label": cat, "value": v}
+            for cat, v in zip(chart.get("categories", []), series.get("values", []))
+        ]
+        return {"kind": "barchart", "title": s.get("title", ""), "bars": bars,
+                "sub": chart.get("title", ""),
                 "note": f"数据来源：{chart.get('source', '')}" if chart.get("source") else ""}
+    if layout == "concept":
+        return {
+            "kind": "concept", "title": s.get("title", ""),
+            "analogy": s.get("analogy", ""), "bullets": s.get("bullets", []),
+            "example": s.get("example", ""), "pitfalls": s.get("pitfalls", []),
+            "pitfalls_grounded": s.get("pitfalls_grounded", False),
+        }
     return {"kind": "bullets", "title": s.get("title", ""), "bullets": s.get("bullets", [])}
 
 
@@ -141,8 +154,14 @@ def _render_as_markdown(plan: DeckPlan, out_path: Path, reason: str) -> RenderRe
     lines = [f"# {plan.title}", "", f"（渲染引擎异常已降级为结构化大纲：{reason}）", ""]
     for s in plan.slides:
         lines.append(f"## {s.get('title', '')}")
+        if s.get("analogy"):
+            lines.append(f"> {s['analogy']}")
         for b in s.get("bullets", []):
             lines.append(f"- {b}")
+        if s.get("example"):
+            lines.append(f"**例子**：{s['example']}")
+        for p in s.get("pitfalls", []):
+            lines.append(f"⚠ **易错点**：{p}")
         lines.append("")
     out_path.write_text("\n".join(lines), encoding="utf-8")
     return RenderResult(

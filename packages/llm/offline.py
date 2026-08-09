@@ -74,6 +74,8 @@ class OfflineClient:
             return self._teaching_plan_session(fields)
         if intent == "课件要点":
             return self._deck_bullets(fields)
+        if intent == "课件概念讲解":
+            return self._deck_concept(fields)
         if intent == "教学大纲章节说明修订":
             return self._revise(fields, "现有说明")
         if intent == "授课计划说明修订":
@@ -164,6 +166,23 @@ class OfflineClient:
             lines.append(first_sentence(mat)[:60])
         lines += [f"「{kp}」的常见误区", f"「{kp}」与前置知识点的联系", "课堂练习/思考题"]
         return "；".join(lines)
+
+    def _deck_concept(self, f: dict) -> str:
+        """离线模式下的课件概念讲解：同样按 `- 字段：值` 格式回复，保证在线/离线
+        走的是同一条解析路径——只是内容是模板，不是真的类比/易错点。"""
+        kp = f.get("知识点", "该知识点")
+        mat = (f.get("教材依据") or "").strip()
+        analogy = (f"可以把「{kp}」类比成一个你熟悉的日常流程——"
+                   "具体怎么类比，离线模式给不出真实答案，接入大模型后重新生成即可获得。")
+        points = [f"「{kp}」的定义与适用场景", f"「{kp}」与前置知识点的联系"]
+        if mat:
+            points.append(first_sentence(mat)[:60])
+        return (
+            f"- 一句话类比：{analogy}\n"
+            f"- 讲解要点：{'；'.join(points)}\n"
+            f"- 应用例子：结合项目任务实践「{kp}」\n"
+            "- 易错点建议："
+        )
 
     def _revise(self, f: dict, existing_key: str) -> str:
         """离线模式下的"对话式修订"：不真正理解指令，只做确定性的可见反馈，

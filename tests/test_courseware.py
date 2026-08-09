@@ -159,6 +159,75 @@ class TestDeckAgentEndToEnd(DBTestCase):
         self.assertEqual(out.plan["missing_kp_codes"], [])
         self.assertEqual(set(out.plan["kp_coverage"]), set(first["kp_codes"]))
 
+    def test_plan_deck_uses_concept_layout_and_leads_with_difficulty_chart(self):
+        """课件不再是"标题+要点"两种页——每个知识点是 concept 布局，
+        且固定带一页难度分布图（数据来自图谱标注，不依赖 LLM/学生数据，始终能生成）。"""
+        syl_out = SyllabusAgent().generate(self.course_id)
+        sid = cw_repo.save_syllabus(self.course_id, syl_out.plan)
+        TeachingPlanAgent().generate(sid)
+        first = cw_repo.list_teaching_plan(sid)[0]
+
+        plan = DeckAgent().plan_deck(first["id"])
+        layouts = [s["layout"] for s in plan.slides]
+        self.assertEqual(layouts[0], "title")
+        self.assertEqual(layouts[1], "barchart")
+        concept_slides = [s for s in plan.slides if s["layout"] == "concept"]
+        self.assertEqual(len(concept_slides), len(first["kp_codes"]))
+        for s in concept_slides:
+            self.assertTrue(s["title"][0] in "💡🔧🎯🛠", "标题必须带确定性图标前缀")
+        chart_slide = plan.slides[1]
+        self.assertEqual(len(chart_slide["chart"]["series"][0]["values"]), len(first["kp_codes"]))
+
+    def test_pitfalls_grounded_in_real_error_pattern_when_available(self):
+        """常见误区优先取真实错误模式库；没有真实数据时 grounded=False，
+        不能把两者混为一谈（诚实标注，见 packages/courseware/deck.py 顶部说明）。"""
+        from packages.errors import service as errors
+
+        errors.record_error(
+            student_id=self.student, kp_id=self.kp["A"], raw_text="示例错误作答",
+        )
+        # 人工确认，让它进入 typical_errors_for 的高优先级
+        rows = errors.list_patterns(kp_id=self.kp["A"])
+        if rows:
+            errors.verify_pattern(rows[0].id, "教师确认")
+
+        syl_out = SyllabusAgent().generate(self.course_id)
+        sid = cw_repo.save_syllabus(self.course_id, syl_out.plan)
+        TeachingPlanAgent().generate(sid)
+        sessions = cw_repo.list_teaching_plan(sid)
+        target = next(s for s in sessions if "A" in s["kp_codes"])
+
+        plan = DeckAgent().plan_deck(target["id"])
+        slide_a = next(s for s in plan.slides
+                       if s["layout"] == "concept" and "A" in s["kp_codes"])
+        other_slides = [s for s in plan.slides
+                        if s["layout"] == "concept" and "A" not in s["kp_codes"]]
+        self.assertTrue(slide_a["pitfalls"])
+        self.assertTrue(slide_a["pitfalls_grounded"])
+        for s in other_slides:  # 没有真实数据的知识点不应该被误标成"真实"
+            self.assertFalse(s["pitfalls_grounded"])
+
+    def test_render_with_rich_content_produces_valid_pptx(self):
+        """concept/barchart 两种新布局在离线模式下也必须能渲染出合法的 pptx，
+        不是只有结构没有实际产物。"""
+        syl_out = SyllabusAgent().generate(self.course_id)
+        sid = cw_repo.save_syllabus(self.course_id, syl_out.plan)
+        TeachingPlanAgent().generate(sid)
+        first = cw_repo.list_teaching_plan(sid)[0]
+
+        agent = DeckAgent()
+        plan = agent.plan_deck(first["id"])
+        plan, _ = agent.fill_content(plan)
+        out = agent.render(plan)
+        z = zipfile.ZipFile(out.plan["file_path"])
+        self.assertIsNone(z.testzip())
+        n_slides = sum(1 for n in z.namelist()
+                       if n.startswith("ppt/slides/slide") and n.endswith(".xml"))
+        self.assertEqual(n_slides, len(plan.slides))
+        # 难度图那页（第 2 张）必须真的含数值文本，不是空壳
+        chart_xml = z.read("ppt/slides/slide2.xml").decode("utf-8")
+        self.assertIn("knowledge_point.difficulty", chart_xml)
+
 
 class TestContentChatAgent(DBTestCase):
     """对话式修订：只改"怎么说"，结构（章节/知识点/页数）必须原样不动。"""
@@ -206,7 +275,7 @@ class TestContentChatAgent(DBTestCase):
         （曾经的 bug：re-split 免责文案导致最后一条被从中间截断）。"""
         deck = cw_repo.get_deck(self.deck_id)
         slide_idx = next(i for i, s in enumerate(deck["deck_plan"]["slides"])
-                         if s["layout"] == "bullets" and s["bullets"])
+                         if s["layout"] == "concept" and s["bullets"])
         original_bullets = deck["deck_plan"]["slides"][slide_idx]["bullets"]
 
         r = self.chat.refine_slide(self.deck_id, slide_idx, "换个更口语化的说法")
@@ -218,7 +287,7 @@ class TestContentChatAgent(DBTestCase):
     def test_save_slide_then_rerender_reflects_new_bullets_in_file(self):
         deck = cw_repo.get_deck(self.deck_id)
         slide_idx = next(i for i, s in enumerate(deck["deck_plan"]["slides"])
-                         if s["layout"] == "bullets")
+                         if s["layout"] == "concept")
         new_bullets = ["全新要点甲", "全新要点乙"]
         self.chat.save_slide(self.deck_id, slide_idx, new_bullets)
 
