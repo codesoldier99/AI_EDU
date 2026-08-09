@@ -50,11 +50,24 @@
   text-align:center;color:var(--muted)}
 .tw-soon b{display:block;color:var(--ink);font-size:15px;margin-bottom:6px}
 
-.tw-steps{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
-.tw-step{font-size:12px;padding:4px 10px;border-radius:99px;border:1px solid var(--line);
-  color:var(--muted)}
+.tw-steps{display:flex;align-items:center;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+.tw-step{font:inherit;font-size:12px;padding:5px 12px;border-radius:99px;border:1px solid var(--line);
+  color:var(--muted);background:var(--panel);cursor:pointer}
+.tw-step:hover{border-color:var(--accent);color:var(--accent)}
 .tw-step.done{color:var(--ok);border-color:var(--ok)}
-.tw-step.now{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.tw-step.now{color:var(--accent);border-color:var(--accent);background:var(--accent-soft);
+  font-weight:600;cursor:default}
+.tw-step-arrow{color:var(--muted);font-size:13px}
+
+.tw-chat{margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:8px;
+  background:var(--bg)}
+.tw-chat textarea{width:100%;font-size:12.5px;margin-bottom:6px}
+.tw-chat-toggle{margin-top:6px;font-size:12px;border:none;background:none;color:var(--accent);
+  cursor:pointer;padding:2px 0}
+.tw-chat-toggle:hover{text-decoration:underline}
+.tw-chat-result{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.tw-chat-draft{font-size:12.5px;line-height:1.7;white-space:pre-wrap;color:var(--ink);
+  margin-bottom:8px}
 
 .tw-chapter{border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:8px}
 .tw-chapter h4{font-size:13px;margin-bottom:4px}

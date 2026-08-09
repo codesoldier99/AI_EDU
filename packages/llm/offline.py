@@ -74,6 +74,12 @@ class OfflineClient:
             return self._teaching_plan_session(fields)
         if intent == "课件要点":
             return self._deck_bullets(fields)
+        if intent == "教学大纲章节说明修订":
+            return self._revise(fields, "现有说明")
+        if intent == "授课计划说明修订":
+            return self._revise(fields, "现有说明")
+        if intent == "课件要点修订":
+            return self._revise(fields, "现有要点")
         return "（离线表达器）已按结构化输入生成，如下：\n" + user.strip()[:600]
 
     def _ask(self, f: dict) -> str:
@@ -158,6 +164,17 @@ class OfflineClient:
             lines.append(first_sentence(mat)[:60])
         lines += [f"「{kp}」的常见误区", f"「{kp}」与前置知识点的联系", "课堂练习/思考题"]
         return "；".join(lines)
+
+    def _revise(self, f: dict, existing_key: str) -> str:
+        """离线模式下的"对话式修订"：不真正理解指令，只做确定性的可见反馈，
+        提醒教师这不是真改写——避免看起来像是模型认真改了、实际没有。"""
+        existing = f.get(existing_key, "")
+        instr = f.get("教师指令", "")
+        return (
+            f"{existing}\n\n"
+            f"（离线模式下无法真正按「{instr}」重新组织文字，以上原样保留；"
+            "接入大模型后重新发起这次修订即可获得真实改写效果。）"
+        )
 
     def _copilot(self, f: dict) -> str:
         mat = (f.get("项目资料") or "").strip()

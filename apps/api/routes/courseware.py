@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from packages.courseware import repo as courseware_repo
+from packages.courseware.chat import ContentChatAgent
 from packages.courseware.deck import DeckAgent
 from packages.courseware.syllabus import SyllabusAgent
 from packages.courseware.teaching_plan import TeachingPlanAgent
@@ -16,6 +17,7 @@ from ..microapi import App, FileResponse, HTTPError, Request
 syllabus_agent = SyllabusAgent()
 plan_agent = TeachingPlanAgent()
 deck_agent = DeckAgent()
+chat_agent = ContentChatAgent()
 
 
 def register(app: App) -> None:
@@ -88,6 +90,14 @@ def register(app: App) -> None:
             raise HTTPError(404, "课件不存在")
         return d
 
+    @app.get("/api/courseware/deck/by-session/{teaching_plan_id}", role="teacher")
+    def deck_by_session(req: Request):
+        """某次课已经生成过的最新一份课件（没有则返回 null）——用于教师切换到已生成
+        过课件的次课时，不需要重新点「生成课件」就能看到已有内容。"""
+        tid = int(req.path_params["teaching_plan_id"])
+        rows = courseware_repo.list_decks(tid)
+        return {"deck": courseware_repo.get_deck(rows[0]["id"]) if rows else None}
+
     @app.get("/api/courseware/deck/{deck_id}/file", role="teacher")
     def download_deck(req: Request):
         deck_id = int(req.path_params["deck_id"])
@@ -98,6 +108,51 @@ def register(app: App) -> None:
         ctype = ("application/vnd.openxmlformats-officedocument.presentationml.presentation"
                  if d["artifact_type"] == "pptx" else "text/markdown; charset=utf-8")
         return FileResponse(path=path, content_type=ctype, filename=path.name)
+
+    @app.post("/api/courseware/deck/{deck_id}/rerender", role="teacher")
+    def rerender_deck(req: Request):
+        deck_id = int(req.path_params["deck_id"])
+        out = deck_agent.rerender(deck_id)
+        return out.to_dict()
+
+    # ---------------- 对话式修订（大纲章节 / 授课环节 / 课件要点）----------------
+    # kind: syllabus_chapter（ref_id=syllabus_id, sub_id=章节 seq）
+    #     | session（ref_id=teaching_plan.id）
+    #     | slide（ref_id=deck_id, sub_id=页码 index，从 0 开始）
+    @app.post("/api/courseware/chat", role="teacher")
+    def chat_refine(req: Request):
+        body = req.json
+        kind = body.get("kind")
+        ref_id = int(body.get("ref_id") or 0)
+        instruction = (body.get("instruction") or "").strip()
+        if not ref_id or not instruction:
+            raise HTTPError(400, "缺少 ref_id 或 instruction")
+        if kind == "syllabus_chapter":
+            return chat_agent.refine_syllabus_chapter(ref_id, int(body.get("sub_id") or 0),
+                                                       instruction)
+        if kind == "session":
+            return chat_agent.refine_session(ref_id, instruction)
+        if kind == "slide":
+            return chat_agent.refine_slide(ref_id, int(body.get("sub_id") or 0), instruction)
+        raise HTTPError(400, f"未知的 kind：{kind}")
+
+    @app.post("/api/courseware/chat/save", role="teacher")
+    def chat_save(req: Request):
+        body = req.json
+        kind = body.get("kind")
+        ref_id = int(body.get("ref_id") or 0)
+        if not ref_id:
+            raise HTTPError(400, "缺少 ref_id")
+        if kind == "syllabus_chapter":
+            chat_agent.save_syllabus_chapter(ref_id, int(body.get("sub_id") or 0),
+                                             body.get("text", ""))
+        elif kind == "session":
+            chat_agent.save_session(ref_id, body.get("text", ""))
+        elif kind == "slide":
+            chat_agent.save_slide(ref_id, int(body.get("sub_id") or 0), body.get("bullets") or [])
+        else:
+            raise HTTPError(400, f"未知的 kind：{kind}")
+        return {"ok": True}
 
     # ---------------- 课程列表（供前端选课下拉） ----------------
     @app.get("/api/courseware/courses", role="teacher")

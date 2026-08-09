@@ -86,10 +86,28 @@ class DeckAgent(Agent):
                 },
                 max_tokens=300,
             )
-            s["bullets"] = _split_bullets(text, max_bul)
+            s["bullets"] = split_bullets(text, max_bul)
             s["citations"] = [c.to_dict() for c in ctx.citations]
             degraded = degraded or d
         return plan, degraded
+
+    def rerender(self, deck_id: int) -> AgentOutput:
+        """把已保存（可能经聊天修订过要点文字）的 deck_plan_json 重新渲染成文件，
+        不重新跑 plan_deck()——结构（哪些知识点、有几页）保持教师编辑前的样子，
+        只有渲染这一步重来，呼应"内容与渲染分离"。"""
+        deck = repo.get_deck(deck_id)
+        if not deck:
+            raise ValueError(f"课件不存在：deck_id={deck_id}")
+        plan = DeckPlan.from_dict(deck["deck_plan"])
+        out_path = DECK_OUT_DIR / f"deck_tp{plan.teaching_plan_id}" / "deck.pptx"
+        result = officecli_render.render_deck(plan, out_path)
+        repo.update_deck_render(deck_id, result.to_dict())
+        caveat = "课件渲染引擎当前不可用，已降级生成，请稍后重试获取正式版" if result.degraded else ""
+        return AgentOutput(
+            agent=self.name, narrative=f"已重新渲染课件《{plan.title}》。",
+            plan={"deck_id": deck_id, **result.to_dict()},
+            degraded=result.degraded, caveat=caveat,
+        )
 
     def render(self, plan: DeckPlan) -> AgentOutput:
         out_path = DECK_OUT_DIR / f"deck_tp{plan.teaching_plan_id}" / "deck.pptx"
@@ -114,7 +132,7 @@ class DeckAgent(Agent):
         )
 
 
-def _split_bullets(text: str, max_items: int) -> list[str]:
+def split_bullets(text: str, max_items: int) -> list[str]:
     """把 express() 产出的一段文字切成若干条要点——永远不直接把整段话糊到一页上。
 
     确定性后处理：不信任模型输出的格式，统一按标点/换行切、去空、裁数量。
