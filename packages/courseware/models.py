@@ -73,11 +73,15 @@ class SlideChart(Message):
 
 @dataclass
 class SlidePlan(Message):
-    layout: str = "bullets"          # title | bullets | chart
+    layout: str = "bullets"          # title | concept | barchart | bullets
     title: str = ""
     subtitle: str = ""
     bullets: list = field(default_factory=list)
-    chart: dict | None = None        # SlideChart.to_dict()，仅 layout=chart 时有值
+    analogy: str = ""                # 一句话类比/生活化解释，concept 布局用
+    example: str = ""                # 应用例子，concept 布局用
+    pitfalls: list = field(default_factory=list)        # 常见误区
+    pitfalls_grounded: bool = False  # True=来自真实错误模式库，False=大模型建议（诚实标注，前端/渲染都要体现）
+    chart: dict | None = None        # SlideChart.to_dict()，仅 layout=barchart 时有值
     kp_codes: list = field(default_factory=list)       # 本页覆盖的知识点，用于覆盖率校验
     citations: list = field(default_factory=list)
 

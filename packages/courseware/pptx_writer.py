@@ -203,6 +203,97 @@ def build_slide(spec: dict, page: int, total: int) -> str:
                          _para(spec["sub"], 19, MUTED, space_before=0))
         return _slide_xml(sh)
 
+    if kind == "barchart":
+        # 真实数据条形图：矩形高度按数值比例画，原生形状，不是截图、不是表格假装成图。
+        sh += _rect(2, M, TOP + 40000, 90000, 420000, ACCENT)
+        sh += _txbox(3, "title", M + 220000, TOP, W - 2 * M, 620000,
+                     _para(spec["title"], 27, INK, bold=True, space_before=0))
+        y = TOP + 780000
+        if spec.get("sub"):
+            sh += _txbox(4, "sub", M + 220000, y, W - 2 * M, 400000,
+                         _para(spec["sub"], 14, MUTED, space_before=0))
+            y += 520000
+
+        bars = spec.get("bars") or []
+        n = max(len(bars), 1)
+        chart_top, chart_bottom = y + 300000, H - 1050000
+        chart_h = max(chart_bottom - chart_top, 200000)
+        avail_w = W - 2 * M
+        gap = 110000
+        bar_w = max(220000, (avail_w - gap * (n - 1)) // n)
+        maxv = max((b.get("value", 0) for b in bars), default=1) or 1
+        idx = 10
+        sh += _rect(idx, M, chart_bottom, avail_w, 6000, "D5DBE3"); idx += 1
+        for i, b in enumerate(bars):
+            v = b.get("value", 0)
+            bh = max(int(chart_h * (v / maxv)), 24000)
+            bx, by = M + i * (bar_w + gap), chart_bottom - bh
+            sh += _rect(idx, bx, by, bar_w, bh, ACCENT, 92000); idx += 1
+            vtxt = f"{v:.2f}" if isinstance(v, float) else str(v)
+            sh += _txbox(idx, f"val{i}", bx, by - 260000, bar_w, 220000,
+                         _para(vtxt, 11, INK, bold=True, space_before=0, align="ctr")); idx += 1
+            sh += _txbox(idx, f"lbl{i}", bx - 40000, chart_bottom + 40000, bar_w + 80000, 480000,
+                         _para(str(b.get("label", ""))[:9], 10, MUTED, space_before=0,
+                               align="ctr")); idx += 1
+        if spec.get("note"):
+            sh += _txbox(idx, "note", M, H - 480000, W - 2 * M, 300000,
+                         _para(spec["note"], 11, MUTED, space_before=0)); idx += 1
+        sh += _txbox(90, "pg", W - M - 900000, H - 480000, 900000, 300000,
+                     _para(f"{page} / {total}", 11, MUTED, space_before=0, align="r"))
+        return _slide_xml(sh)
+
+    if kind == "concept":
+        # 概念页：标题 + 类比高亮条 + 要点 + 例子/易错点双栏——
+        # 比"标题+一坨要点"多了三层信息，也是"图文并茂"里"文"的深度所在。
+        sh += _rect(2, M, TOP + 40000, 90000, 420000, ACCENT)
+        sh += _txbox(3, "title", M + 220000, TOP, W - 2 * M, 620000,
+                     _para(spec["title"], 26, INK, bold=True, space_before=0))
+        y = TOP + 780000
+        idx = 10
+
+        if spec.get("analogy"):
+            ah = 620000
+            sh += _rect(idx, M, y, W - 2 * M, ah, ACCENT, 11000); idx += 1
+            sh += _txbox(idx, "analogy", M + 240000, y + 90000, W - 2 * M - 480000, ah - 180000,
+                         _para(f"💬 {spec['analogy']}", 15, ACCENT, bold=True, space_before=0,
+                               italic=True)); idx += 1
+            y += ah + 160000
+
+        bullets = spec.get("bullets") or []
+        bottom_h = 1550000 if (spec.get("example") or spec.get("pitfalls")) else 700000
+        body_h = max(H - y - bottom_h - 200000, 400000)
+        if bullets:
+            body = "".join(_para(b, 16, INK, bullet="▪", space_before=260) for b in bullets)
+            sh += _txbox(idx, "body", M, y, W - 2 * M, body_h, body); idx += 1
+        y = H - bottom_h - 200000
+
+        example, pitfalls = spec.get("example"), spec.get("pitfalls") or []
+        p_color = BAD if spec.get("pitfalls_grounded") else WARN
+        p_title = ("⚠ 真实易错点（往届学生数据）" if spec.get("pitfalls_grounded")
+                   else "⚠ 需要留意（AI 建议，供参考）")
+
+        def _tinted_box(x, w, color, title, text):
+            nonlocal idx
+            sh_local = _rect(idx, x, y, w, bottom_h, color, 10000); idx += 1
+            sh_local += _txbox(idx, f"b{idx}", x + 200000, y + 130000, w - 400000, 380000,
+                               _para(title, 13, color, bold=True, space_before=0)); idx += 1
+            sh_local += _txbox(idx, f"t{idx}", x + 200000, y + 520000, w - 400000,
+                               bottom_h - 620000, _para(text, 14, INK, space_before=0)); idx += 1
+            return sh_local
+
+        if example and pitfalls:
+            colw = (W - 2 * M - 260000) // 2
+            sh += _tinted_box(M, colw, OK, "📌 应用例子", example)
+            sh += _tinted_box(M + colw + 260000, colw, p_color, p_title, "；".join(pitfalls))
+        elif example:
+            sh += _tinted_box(M, W - 2 * M, OK, "📌 应用例子", example)
+        elif pitfalls:
+            sh += _tinted_box(M, W - 2 * M, p_color, p_title, "；".join(pitfalls))
+
+        sh += _txbox(90, "pg", W - M - 900000, H - 480000, 900000, 300000,
+                     _para(f"{page} / {total}", 11, MUTED, space_before=0, align="r"))
+        return _slide_xml(sh)
+
     # 常规页：标题 + 强调条 + 内容
     sh += _rect(2, M, TOP + 40000, 90000, 420000, ACCENT)
     sh += _txbox(3, "title", M + 220000, TOP, W - 2 * M, 620000,

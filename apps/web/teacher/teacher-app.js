@@ -335,8 +335,19 @@ async function viewDeck(body) {
       h('div', { class: 'layout-tag' }, s.layout),
       h('h4', {}, s.title || `第 ${i + 1} 页`),
       s.subtitle ? h('div', { class: 'meta' }, s.subtitle) : null,
+      s.analogy ? h('div', { class: 'tw-analogy' }, `💬 ${s.analogy}`) : null,
       s.bullets && s.bullets.length ? h('ul', {}, ...s.bullets.map((b) => h('li', {}, b))) : null,
-      s.layout === 'bullets'
+      s.layout === 'barchart' && s.chart
+        ? h('div', { class: 'meta' },
+            `📊 ${(s.chart.categories || []).length} 项数据 · 来源：${s.chart.source || ''}`)
+        : null,
+      s.example ? h('div', { class: 'tw-example' }, `📌 应用例子：${s.example}`) : null,
+      s.pitfalls && s.pitfalls.length
+        ? h('div', { class: `tw-pitfall ${s.pitfalls_grounded ? 'grounded' : ''}` },
+            `${s.pitfalls_grounded ? '⚠ 真实易错点（往届学生数据）' : '⚠ 需要留意（AI 建议）'}：`
+            + s.pitfalls.join('；'))
+        : null,
+      (s.layout === 'bullets' || s.layout === 'concept')
         ? chatWidget('slide', d.id, i, (draft, bullets) => {
             s.bullets = bullets || s.bullets;
           })

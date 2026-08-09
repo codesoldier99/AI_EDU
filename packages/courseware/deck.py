@@ -1,11 +1,17 @@
 """课件生成：授课计划的一次课 -> 结构化 DeckPlan -> 渲染成 pptx。
 
 这是"质量要比大模型直接生成更高"的落点（CLAUDE.md 用户需求）：
-  1. 每页覆盖哪些知识点、有没有实践环节页，全部由确定性查询决定——
-     大模型只被要求把"已经定好的一页要点"写成 3~5 条通顺的话，不许自由发挥结构；
-  2. DeckPlan.kp_coverage() 可以机器校验"这份课件是否覆盖了授课计划要求的全部知识点"，
-     纯 LLM 一次性吐一份 PPT 文案做不到这种可验证的完整性；
-  3. 渲染引擎（OfficeCLI / 内建 stdlib 引擎）与内容生成完全解耦，换渲染器不用重新生成内容。
+  1. 每页覆盖哪些知识点、有没有实践环节页、配不配图表，全部由确定性查询决定——
+     大模型只被要求把"已经定好的一页内容边界"写成类比/要点/例子，不许自由发挥结构；
+  2. "常见误区"优先取自真实错误模式库（packages.errors），不是模型现编——
+     没有真实数据时才退到模型建议，且明确标注来源（pitfalls_grounded），前端/渲染都要体现；
+  3. 每份课件固定带一页"知识点难度分布"图（数据来自知识图谱标注，不依赖 LLM、不依赖学生数据），
+     保证"图文并茂"里的"图"是真图，不是文字硬凑出来的排版效果；
+  4. 渲染引擎（OfficeCLI / 内建 stdlib 引擎）与内容生成完全解耦，换渲染器不用重新生成内容。
+
+LLM 输出契约：要求模型按 `- 字段名：内容` 逐行回复（与 Agent.express() 的输入格式同源），
+用 packages.core.textfmt.parse_kv_fields 确定性解析——不信任模型输出的自由格式，
+也不需要 JSON mode（不是所有底座都稳定支持）。
 """
 from __future__ import annotations
 
@@ -14,6 +20,8 @@ from pathlib import Path
 from packages.agents.base import Agent, AgentOutput
 from packages.core.config import CONFIG, ROOT
 from packages.core.models import confidence_from_evidence
+from packages.core.textfmt import parse_kv_fields, split_items
+from packages.errors import service as errors
 from packages.graph import repo as graph_repo
 from packages.rag import retriever
 
@@ -22,16 +30,20 @@ from .models import DeckPlan, SlidePlan
 
 DECK_OUT_DIR = ROOT / "var" / "courseware"
 
+# 知识点类型 -> 图标：纯装饰性的确定性映射，不需要模型判断，也不需要额外的图标资源文件
+ICON_BY_TYPE = {"concept": "💡", "method": "🔧", "skill": "🎯", "tool": "🛠"}
+
 
 class DeckAgent(Agent):
     name = "deck"
     system_prompt = (
-        "你是课件文案助理。只依据给定的知识点名称与教材依据，写 3 到 5 条简短的课件要点"
-        "（每条一行，不要编号），禁止引入给定材料之外的事实，禁止出现具体数值除非材料里有。"
+        "你是课件文案助理，负责把一个知识点讲透、讲生动。只依据给定的知识点名称与教材依据组织内容，"
+        "禁止引入给定材料之外的事实，禁止编造材料里没有的具体数值。"
+        "必须严格按「- 字段名：内容」逐行输出，不要输出其他任何文字、不要编号、不要加粗符号。"
     )
 
     def plan_deck(self, teaching_plan_id: int) -> DeckPlan:
-        """确定性部分：标题页 + 每个知识点一页骨架 + 关联实践任务页。"""
+        """确定性部分：标题页 + 难度分布图 + 每个知识点一页骨架 + 关联实践任务页。"""
         item = repo.get_teaching_plan_item(teaching_plan_id)
         if not item:
             raise ValueError(f"授课计划条目不存在：id={teaching_plan_id}")
@@ -43,9 +55,22 @@ class DeckAgent(Agent):
             subtitle=f"共 {len(kps)} 个知识点 · {item['duration_min']} 分钟",
         ).to_dict()]
 
-        for kp in kps:
+        if kps:
             slides.append(SlidePlan(
-                layout="bullets", title=kp.name, kp_codes=[kp.code], bullets=[],
+                layout="barchart", title="本次课知识点难度分布",
+                chart={
+                    "chart_type": "bar", "title": "难度（0～1，来自知识图谱标注，非学生实测）",
+                    "categories": [k.name for k in kps],
+                    "series": [{"name": "难度", "values": [k.difficulty for k in kps]}],
+                    "source": "knowledge_point.difficulty",
+                },
+            ).to_dict())
+
+        for kp in kps:
+            pitfalls, grounded = self._pitfalls_for(kp.id)
+            slides.append(SlidePlan(
+                layout="concept", title=f"{ICON_BY_TYPE.get(kp.kp_type, '💡')} {kp.name}",
+                kp_codes=[kp.code], pitfalls=pitfalls, pitfalls_grounded=grounded,
             ).to_dict())
 
         related_tasks: set[int] = set()
@@ -65,12 +90,26 @@ class DeckAgent(Agent):
             title=item["title"], slides=slides,
         )
 
+    @staticmethod
+    def _pitfalls_for(kp_id: int, limit: int = 2) -> tuple[list[str], bool]:
+        """优先用真实错误模式库；没有真实数据才留空，交给 fill_content 用模型建议兜底
+        （并标注 grounded=False，不能和真实数据混为一谈）。"""
+        rows = errors.typical_errors_for(kp_id, limit=limit)
+        if rows:
+            return [r["description"] for r in rows], True
+        return [], False
+
     def fill_content(self, plan: DeckPlan) -> tuple[DeckPlan, bool]:
-        """按页逐个 express()，每页只喂"这一页要讲的知识点"，不喂整份课件结构。"""
+        """按页逐个 express()，每页只喂"这一页要讲的知识点"，不喂整份课件结构。
+
+        concept 布局要求模型一次性给出类比/要点/例子/（可选）误区建议，
+        用统一的 `- 字段名：内容` 格式回复，再确定性解析——比"甩一段话再切句子"
+        能拿到明显更有层次的内容，也不需要多轮调用。
+        """
         max_bul = CONFIG.teaching.deck_max_bullets_per_slide
         degraded = False
         for s in plan.slides:
-            if s["layout"] != "bullets" or s["bullets"] or not s.get("kp_codes"):
+            if s["layout"] != "concept" or s.get("analogy") or not s.get("kp_codes"):
                 continue
             kp_code = s["kp_codes"][0]
             kp = graph_repo.get_kp_by_code(kp_code)
@@ -80,13 +119,23 @@ class DeckAgent(Agent):
             )
             text, d = self.express(
                 {
-                    "意图": "课件要点",
-                    "知识点": s["title"],
+                    "意图": "课件概念讲解",
+                    "知识点": kp.name if kp else s["title"],
                     "教材依据": ctx.context_text(2)[:500],
+                    "输出格式": "严格按下面几行输出——"
+                        "- 一句话类比：用一个生活化的比喻讲清楚这个概念；"
+                        "- 讲解要点：2到4条，用「；」分隔；"
+                        "- 应用例子：一个具体的项目/生活场景；"
+                        "- 易错点建议：0到2条，用「；」分隔，没有把握就留空，不要编",
                 },
-                max_tokens=300,
+                max_tokens=400,
             )
-            s["bullets"] = split_bullets(text, max_bul)
+            fields = parse_kv_fields(text)
+            s["analogy"] = fields.get("一句话类比", "")
+            s["bullets"] = split_items(fields.get("讲解要点", ""))[:max_bul]
+            s["example"] = fields.get("应用例子", "")
+            if not s.get("pitfalls"):  # 真实错误模式库已有数据时不用模型建议覆盖
+                s["pitfalls"] = split_items(fields.get("易错点建议", ""))[:2]
             s["citations"] = [c.to_dict() for c in ctx.citations]
             degraded = degraded or d
         return plan, degraded
@@ -133,7 +182,8 @@ class DeckAgent(Agent):
 
 
 def split_bullets(text: str, max_items: int) -> list[str]:
-    """把 express() 产出的一段文字切成若干条要点——永远不直接把整段话糊到一页上。
+    """把一段文字切成若干条要点——供聊天式修订（packages.courseware.chat）复用，
+    那里教师给的是自由改写指令，模型仍可能回一整段话，不走 `- 字段：值` 契约。
 
     确定性后处理：不信任模型输出的格式，统一按标点/换行切、去空、裁数量。
     """
