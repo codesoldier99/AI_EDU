@@ -25,6 +25,19 @@ class HTTPError(Exception):
 
 
 @dataclass
+class FileResponse:
+    """路由返回本类型即触发二进制下载，不走 JSON 编码。
+
+    仅供已生成好的产物文件（课件/导出报表）使用；路由本身不得读写业务逻辑，
+    只负责把 packages 层给出的 file_path 包一层下载响应。
+    """
+
+    path: Path
+    content_type: str = "application/octet-stream"
+    filename: str = ""
+
+
+@dataclass
 class Request:
     method: str = "GET"
     path: str = "/"
@@ -140,6 +153,21 @@ class App:
                     return self._static(u.path)
                 try:
                     result = app.dispatch(req)
+                    if isinstance(result, FileResponse):
+                        if not result.path.exists():
+                            return self._json(404, {"error": "文件不存在"})
+                        data = result.path.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", result.content_type)
+                        self.send_header("Content-Length", str(len(data)))
+                        if result.filename:
+                            self.send_header(
+                                "Content-Disposition", f'attachment; filename="{result.filename}"'
+                            )
+                        self.send_header("Access-Control-Allow-Origin", "*")
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
                     if isinstance(result, tuple):
                         status, obj = result
                     else:

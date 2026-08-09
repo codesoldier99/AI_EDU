@@ -51,6 +51,11 @@ class TeachingConfig:
     retention_threshold: float = 0.6
     # 两次做对相隔多少天才算"已验证掌握"——挡住当堂反复练到做对
     verify_gap_days: float = 7.0
+    # ---- 教师工作台 · 教学资产生成（见 packages/courseware）----
+    # 授课计划切课：一次课最多覆盖多少个知识点，超出则拆成多次课
+    max_kp_per_session: int = 6
+    # 课件生成：每张内容页最多保留多少条要点（express() 产出的文本会被裁到这个数量）
+    deck_max_bullets_per_slide: int = 5
     # BKT 课程级默认参数（冷启动）
     bkt_default: dict = field(
         default_factory=lambda: {
@@ -85,6 +90,9 @@ class Config:
     embed_model: str = "hashed-char-bigram-tfidf"
     embed_version: str = "v1"
     embed_dim: int = 256
+    # 课件渲染器（可替换件）。二进制不存在/调用失败时自动降级为内建 stdlib pptx 引擎。
+    officecli_path: str = "/opt/officecli/officecli"
+    officecli_timeout_s: int = 30
     teaching: TeachingConfig = field(default_factory=TeachingConfig)
 
     def to_dict(self) -> dict[str, Any]:
@@ -109,6 +117,7 @@ def load_config() -> Config:
         "LLM_BASE_URL": "llm_base_url",
         "LLM_API_KEY": "llm_api_key",
         "LLM_MODEL": "llm_model",
+        "AIEDU_OFFICECLI_PATH": "officecli_path",
     }
     for env, attr in env_map.items():
         if os.environ.get(env):

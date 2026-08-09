@@ -29,6 +29,10 @@ def get_course(code: str) -> dict | None:
     return get_db().query_one("SELECT * FROM course WHERE code=?", (code,))
 
 
+def get_course_by_id(course_id: int) -> dict | None:
+    return get_db().query_one("SELECT * FROM course WHERE id=?", (course_id,))
+
+
 def list_courses() -> list[dict]:
     return get_db().query("SELECT * FROM course ORDER BY id")
 

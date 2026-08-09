@@ -870,6 +870,7 @@ async function boot() {
 
 async function loadMe() {
   const who = await api('/api/whoami').catch(() => null);
+  $('#teacher-workbench-link').hidden = !isTeacher();
   if (!who) { S.me = null; return; }
   if (who.role === 'student') {
     S.me = who;

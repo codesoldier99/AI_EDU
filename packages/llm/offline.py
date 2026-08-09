@@ -68,6 +68,12 @@ class OfflineClient:
             return self._credit(fields)
         if intent == "教师简报":
             return self._teacher_brief(fields)
+        if intent == "教学大纲章节说明":
+            return self._syllabus_chapter(fields)
+        if intent == "授课计划说明":
+            return self._teaching_plan_session(fields)
+        if intent == "课件要点":
+            return self._deck_bullets(fields)
         return "（离线表达器）已按结构化输入生成，如下：\n" + user.strip()[:600]
 
     def _ask(self, f: dict) -> str:
@@ -128,6 +134,30 @@ class OfflineClient:
             f"建议动作：{f.get('下一步', '优先联系名单内学生')}。\n"
             "（本简报只描述学情与系统状态，不生成任何针对教师的评价性数据）"
         )
+
+    def _syllabus_chapter(self, f: dict) -> str:
+        kps = f.get("知识点", "")
+        return (
+            f"本章围绕「{f.get('章节', '本章')}」展开，覆盖知识点：{kps or '（无）'}。\n"
+            f"学完本章应能把这些知识点用于后续章节与项目任务，建议按知识点列出的顺序学习。\n"
+            "（离线模板：未接入大模型时的结构化占位文案，不影响章节结构本身的正确性）"
+        )
+
+    def _teaching_plan_session(self, f: dict) -> str:
+        return (
+            f"本次课主题「{f.get('本次课主题', '')}」，课时 {f.get('课时', '90 分钟')}。\n"
+            f"知识点：{f.get('知识点', '（无）')}。\n"
+            "建议环节：导入（回顾前置知识）→ 讲授（本次课知识点）→ 练习（结合项目任务）→ 小结。"
+        )
+
+    def _deck_bullets(self, f: dict) -> str:
+        kp = f.get("知识点", "该知识点")
+        mat = (f.get("教材依据") or "").strip()
+        lines = [f"「{kp}」的定义与适用场景"]
+        if mat:
+            lines.append(first_sentence(mat)[:60])
+        lines += [f"「{kp}」的常见误区", f"「{kp}」与前置知识点的联系", "课堂练习/思考题"]
+        return "；".join(lines)
 
     def _copilot(self, f: dict) -> str:
         mat = (f.get("项目资料") or "").strip()

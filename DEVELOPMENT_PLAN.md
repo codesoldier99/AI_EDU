@@ -467,6 +467,20 @@ streak        连续活跃天数
 | 2 追问审查 | ✅ | `packages/agents/{asking,review}.py` | 未降级不给答案；降级写事件；只有 reliable 映射经教师采纳才回写 L2 |
 | 3 拉取+项目 | ✅ | `packages/agents/task.py`、`packages/adapters/`、`apps/web/` | `make gap` 输出合理；新增适配器核心代码 md5 不变；学生端与副驾驶可用 |
 | 4 画像验证 | 部分 | `packages/agents/profile.py` | 画像已上线；**对照实验数据采集尚未开始** |
+| 教师工作台 · Phase A | ✅ | `packages/courseware/`、`apps/web/teacher/` | 大纲→授课计划→课件链路可用（见下方说明）；`make test` 含 `test_courseware.py` |
+
+**教师工作台 Phase A（教学大纲 → 授课计划 → 课件生成）：** 落地 1.1 节"基础文档生成"
+的前三项。新增 `packages/courseware/` 包（`syllabus.py`/`teaching_plan.py`/`deck.py`
+沿用 `plan()`/`express()` 二段式，复用 `graph.algo.topological_sort`/`task.compute_gap`
+同款确定性排序），`apps/web/teacher/` 独立教师工作台页面（侧边栏导航，暂 3/7 个入口可用，
+其余标注"即将上线"）。课件渲染分两级：优先调用 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)
+（外部 .NET 自包含二进制，纯确定性 OOXML 引擎，不含 LLM），不可用时自动降级到
+`packages/courseware/pptx_writer.py`（从 `scripts/make_deck.py` 抽出的纯 stdlib 引擎，
+`scripts/make_deck.py` 现在也改为依赖它，避免同一段 OOXML 拼装逻辑存在两份）——
+教师任何时候都能拿到一份真实可打开的 pptx，只是版式在降级时更简单。
+`DeckPlan.kp_coverage()` 提供机器可验证的知识点覆盖率校验，作为"质量高于纯 LLM 直接
+生成"的具体落点。评卷（Phase B）与试卷题库仍待做；本期试卷生成、成绩分析、
+达成度评价、课堂练习均为前端占位，尚无后端实现。
 
 ### 与原计划的差异及理由
 
