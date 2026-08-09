@@ -19,6 +19,7 @@ from base import DBTestCase
 from packages.core.config import CONFIG
 from packages.courseware import officecli_render
 from packages.courseware import repo as cw_repo
+from packages.courseware.chat import ContentChatAgent
 from packages.courseware.deck import DeckAgent
 from packages.courseware.models import DeckPlan, SlidePlan
 from packages.courseware.syllabus import SyllabusAgent
@@ -157,6 +158,81 @@ class TestDeckAgentEndToEnd(DBTestCase):
         out = agent.render(plan)
         self.assertEqual(out.plan["missing_kp_codes"], [])
         self.assertEqual(set(out.plan["kp_coverage"]), set(first["kp_codes"]))
+
+
+class TestContentChatAgent(DBTestCase):
+    """对话式修订：只改"怎么说"，结构（章节/知识点/页数）必须原样不动。"""
+
+    seed_course = True
+
+    def setUp(self):
+        super().setUp()
+        self._orig_path = CONFIG.officecli_path
+        CONFIG.officecli_path = ""  # 强制走内建降级引擎
+        self.syl_out = SyllabusAgent().generate(self.course_id)
+        self.syllabus_id = cw_repo.save_syllabus(self.course_id, self.syl_out.plan)
+        TeachingPlanAgent().generate(self.syllabus_id)
+        self.session = cw_repo.list_teaching_plan(self.syllabus_id)[0]
+        plan = DeckAgent().plan_deck(self.session["id"])
+        plan, _ = DeckAgent().fill_content(plan)  # populate bullets so tests have real content
+        self.deck = DeckAgent().render(plan)
+        self.deck_id = self.deck.plan["deck_id"]
+        self.chat = ContentChatAgent()
+
+    def tearDown(self):
+        CONFIG.officecli_path = self._orig_path
+        super().tearDown()
+
+    def test_refine_syllabus_chapter_does_not_change_structure_then_save_persists(self):
+        before = cw_repo.get_syllabus(self.syllabus_id)["content"]["chapters"]
+        r = self.chat.refine_syllabus_chapter(self.syllabus_id, 1, "写短一点")
+        self.assertIn("draft", r)
+        self.chat.save_syllabus_chapter(self.syllabus_id, 1, r["draft"])
+        after = cw_repo.get_syllabus(self.syllabus_id)["content"]["chapters"]
+        # 结构字段（kp_codes/kp_names/unit）必须逐章完全不变，只有 narrative 可能变
+        for b, a in zip(before, after):
+            self.assertEqual(b["kp_codes"], a["kp_codes"])
+            self.assertEqual(b["unit"], a["unit"])
+        self.assertEqual(after[0]["narrative"], r["draft"])
+
+    def test_refine_session_then_save_persists(self):
+        r = self.chat.refine_session(self.session["id"], "加一句课堂互动")
+        self.chat.save_session(self.session["id"], r["draft"])
+        item = cw_repo.get_teaching_plan_item(self.session["id"])
+        self.assertEqual(item["narrative"], r["draft"])
+
+    def test_refine_slide_in_degraded_mode_keeps_original_bullets_unfragmented(self):
+        """回归测试：离线降级模式下改写要点，不能把免责声明文字拆进 bullets 里
+        （曾经的 bug：re-split 免责文案导致最后一条被从中间截断）。"""
+        deck = cw_repo.get_deck(self.deck_id)
+        slide_idx = next(i for i, s in enumerate(deck["deck_plan"]["slides"])
+                         if s["layout"] == "bullets" and s["bullets"])
+        original_bullets = deck["deck_plan"]["slides"][slide_idx]["bullets"]
+
+        r = self.chat.refine_slide(self.deck_id, slide_idx, "换个更口语化的说法")
+        self.assertTrue(r["degraded"])  # 测试环境没有配置真实 LLM Key
+        self.assertEqual(r["bullets"], original_bullets)
+        for b in r["bullets"]:
+            self.assertNotIn("离线模式", b)  # 免责声明不应该混进要点列表
+
+    def test_save_slide_then_rerender_reflects_new_bullets_in_file(self):
+        deck = cw_repo.get_deck(self.deck_id)
+        slide_idx = next(i for i, s in enumerate(deck["deck_plan"]["slides"])
+                         if s["layout"] == "bullets")
+        new_bullets = ["全新要点甲", "全新要点乙"]
+        self.chat.save_slide(self.deck_id, slide_idx, new_bullets)
+
+        saved = cw_repo.get_deck(self.deck_id)
+        self.assertEqual(saved["deck_plan"]["slides"][slide_idx]["bullets"], new_bullets)
+
+        out = self.chat.rerender_after_edit(self.deck_id)
+        self.assertTrue(out.degraded)
+        file_path = Path(out.plan["file_path"])
+        self.assertTrue(file_path.exists())
+        z = zipfile.ZipFile(file_path)
+        xml = z.read(f"ppt/slides/slide{slide_idx + 1}.xml").decode("utf-8")
+        self.assertIn("全新要点甲", xml)
+        self.assertIn("全新要点乙", xml)
 
 
 if __name__ == "__main__":

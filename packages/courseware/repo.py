@@ -49,6 +49,22 @@ def confirm_syllabus(syllabus_id: int) -> None:
     )
 
 
+def update_syllabus_chapter_narrative(syllabus_id: int, seq: int, narrative: str) -> dict:
+    """对话式修订落地口：只改某一章的说明文字，章节结构（unit/kp_codes/kp_names）
+    不受聊天指令影响——结构事实永远只能由 SyllabusAgent.plan() 重新生成。"""
+    syl = get_syllabus(syllabus_id)
+    if not syl:
+        raise ValueError(f"教学大纲不存在：syllabus_id={syllabus_id}")
+    content = syl["content"]
+    chapter = next((c for c in content.get("chapters", []) if c["seq"] == seq), None)
+    if chapter is None:
+        raise ValueError(f"章节不存在：syllabus_id={syllabus_id} seq={seq}")
+    chapter["narrative"] = narrative
+    get_db().execute("UPDATE syllabus SET content_json=? WHERE id=?",
+                     (dumps(content), syllabus_id))
+    return chapter
+
+
 def list_syllabus(course_id: int) -> list[dict]:
     return get_db().query(
         "SELECT id, course_id, version, status, created_by, created_at, confirmed_at"
@@ -122,6 +138,34 @@ def get_deck(deck_id: int) -> dict | None:
         r["deck_plan"] = loads(r["deck_plan_json"], {})
         r["kp_coverage"] = loads(r["kp_coverage_json"], [])
     return r
+
+
+def update_deck_slide_bullets(deck_id: int, slide_index: int, bullets: list[str]) -> dict:
+    """对话式修订落地口：只改某一页的要点文字。哪些知识点、有几页，
+    结构事实同样不受聊天指令影响——只能由 DeckAgent.plan_deck() 重新生成。"""
+    deck = get_deck(deck_id)
+    if not deck:
+        raise ValueError(f"课件不存在：deck_id={deck_id}")
+    plan = deck["deck_plan"]
+    slides = plan.get("slides", [])
+    if not (0 <= slide_index < len(slides)):
+        raise ValueError(f"页码越界：deck_id={deck_id} slide_index={slide_index}")
+    slides[slide_index]["bullets"] = bullets
+    get_db().execute("UPDATE courseware_deck SET deck_plan_json=? WHERE id=?",
+                     (dumps(plan), deck_id))
+    return slides[slide_index]
+
+
+def update_deck_render(deck_id: int, render_result: dict) -> None:
+    """重新渲染后回写文件路径/渲染工具信息，deck_plan_json 内容不变（那是"重新渲染"，
+    不是"重新生成"——知识点覆盖范围不应该因为换了一次渲染而改变）。"""
+    get_db().execute(
+        "UPDATE courseware_deck SET artifact_type=?, render_tool=?, render_tool_version=?,"
+        " file_path=?, degraded=? WHERE id=?",
+        (render_result.get("artifact_type", "pptx"), render_result.get("render_tool", ""),
+         render_result.get("render_tool_version", ""), render_result.get("file_path", ""),
+         int(render_result.get("degraded", False)), deck_id),
+    )
 
 
 def list_decks(teaching_plan_id: int) -> list[dict]:

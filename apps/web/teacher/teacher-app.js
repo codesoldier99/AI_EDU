@@ -1,15 +1,19 @@
-/* 教师工作台：教学大纲 / 授课计划 / 课件生成（Phase A）。
+/* 教师工作台：教学大纲 / 授课计划 / 课件生成（Phase A + 对话式修订）。
  *
  * 独立页面而非塞进 /app.js 的横向 tab 栏——原因见 docs 里的说明：
  * 侧边栏三栏布局与现有顶部 tab 栏是两种不同的 DOM 骨架，硬塞会产生双重导航。
  * 鉴权沿用同一套 X-Auth-Token 机制，与 /app.js 共享同一个 localStorage token，
  * 因此从主界面切到这里、或反过来，身份不会丢失。
+ *
+ * 状态获取原则：每个 view 进入时都独立、幂等地把自己需要的数据从后端拉一遍
+ * （ensureSyllabus/ensureSessions/ensureDeckDetail），不依赖"教师是不是刚好先点过
+ * 另一个 tab"——教师完全可能刷新页面后直接点「授课计划」，这时同样要能看到已有数据。
  */
 'use strict';
 
 const S = { token: localStorage.getItem('aiedu.token') || '', me: null,
-  courses: [], courseId: null, syllabus: null, sessions: [], deck: null,
-  view: 'syllabus' };
+  courses: [], courseId: null, syllabus: null, sessions: [], deckSessionId: null,
+  deckDetail: null, deckNote: null, chat: {}, view: 'syllabus' };
 
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -79,22 +83,115 @@ function renderSidebar() {
 
 function courseSelect() {
   return h('select', {
-    onchange: (e) => { S.courseId = Number(e.target.value); S.syllabus = null; S.sessions = []; render(); },
+    onchange: (e) => {
+      S.courseId = Number(e.target.value);
+      S.syllabus = null; S.sessions = []; S.deckSessionId = null; S.deckDetail = null;
+      render();
+    },
   }, ...S.courses.map((c) => h('option', {
     value: c.id, selected: c.id === S.courseId ? '' : null,
   }, `${c.name}（${c.code}）`)));
 }
 
+// ---------------------------------------------------------------- 三步流程条（可点击跳转）
+function renderSteps(active) {
+  const steps = [
+    { id: 'syllabus', label: '① 教学大纲', done: !!(S.syllabus && S.syllabus.id) },
+    { id: 'teaching_plan', label: '② 授课计划', done: S.sessions.length > 0 },
+    { id: 'deck', label: '③ 课件生成', done: !!(S.deckDetail && S.deckDetail.id) },
+  ];
+  const nodes = [];
+  steps.forEach((s, i) => {
+    if (i > 0) nodes.push(h('span', { class: 'tw-step-arrow' }, '→'));
+    nodes.push(h('button', {
+      class: `tw-step ${s.id === active ? 'now' : (s.done ? 'done' : '')}`,
+      onclick: () => { S.view = s.id; render(); },
+    }, s.label));
+  });
+  return h('div', { class: 'tw-steps' }, ...nodes);
+}
+
+// ---------------------------------------------------------------- 数据获取（每个 view 独立、幂等）
+async function ensureSyllabus() {
+  try {
+    const s = await api(`/api/courseware/syllabus/${S.courseId}`);
+    S.syllabus = s && s.content ? s : null;
+  } catch (e) { S.syllabus = null; }
+}
+
+async function ensureSessions() {
+  if (!S.syllabus || !S.syllabus.id) { S.sessions = []; return; }
+  try { S.sessions = (await api(`/api/courseware/teaching-plan/${S.syllabus.id}`)).items; }
+  catch (e) { S.sessions = []; }
+}
+
+async function ensureDeckDetail() {
+  if (!S.deckSessionId) { S.deckDetail = null; return; }
+  try { S.deckDetail = (await api(`/api/courseware/deck/by-session/${S.deckSessionId}`)).deck; }
+  catch (e) { S.deckDetail = null; }
+}
+
+// ---------------------------------------------------------------- 对话式修订组件
+// kind: 'syllabus_chapter' | 'session' | 'slide'；onSaved(draftInfo) 由调用方决定怎么把
+// 保存结果反映到本地状态（避免每次保存后整页重新拉取一遍所有数据）。
+function chatKey(kind, refId, subId) { return `${kind}:${refId}:${subId ?? ''}`; }
+
+function chatWidget(kind, refId, subId, onSaved) {
+  const key = chatKey(kind, refId, subId);
+  const st = S.chat[key] || (S.chat[key] = { open: false, loading: false, draft: null,
+    bullets: null, degraded: false, error: null, instruction: '' });
+
+  if (!st.open) {
+    return h('button', { class: 'tw-chat-toggle',
+      onclick: () => { st.open = true; render(); } }, '💬 对话调整');
+  }
+
+  const doRefine = async () => {
+    if (!st.instruction.trim()) return;
+    st.loading = true; st.error = null; render();
+    try {
+      const out = await api('/api/courseware/chat', {
+        body: { kind, ref_id: refId, sub_id: subId, instruction: st.instruction },
+      });
+      st.draft = out.draft; st.bullets = out.bullets || null; st.degraded = out.degraded;
+    } catch (e) { st.error = e.message; }
+    st.loading = false; render();
+  };
+  const doSave = async () => {
+    const body = { kind, ref_id: refId, sub_id: subId };
+    if (kind === 'slide') body.bullets = st.bullets; else body.text = st.draft;
+    await api('/api/courseware/chat/save', { body });
+    onSaved(st.draft, st.bullets);
+    S.chat[key] = { open: false, loading: false, draft: null, bullets: null,
+      degraded: false, error: null, instruction: '' };
+    render();
+  };
+
+  return h('div', { class: 'tw-chat' },
+    h('textarea', {
+      rows: 2, placeholder: '比如：写短一点 / 换个例子 / 加一句课堂互动…',
+      oninput: (e) => { st.instruction = e.target.value; },
+    }, st.instruction),
+    h('div', { class: 'flexrow' },
+      h('button', { class: 'primary', disabled: st.loading ? '' : null, onclick: doRefine },
+        st.loading ? '生成中…' : '生成建议'),
+      h('button', { class: 'ghost', onclick: () => {
+        S.chat[key] = { open: false, loading: false, draft: null, bullets: null,
+          degraded: false, error: null, instruction: '' };
+        render();
+      } }, '取消')),
+    st.error ? h('div', { class: 'notice bad' }, `⚠ ${st.error}`) : null,
+    st.draft ? h('div', { class: 'tw-chat-result' },
+      h('div', { class: 'tw-chat-draft' }, st.draft),
+      st.degraded ? h('div', { class: 'notice' }, '⚠ 当前离线模式，未真正按指令改写；接入大模型后重试可获得真实效果') : null,
+      h('button', { class: 'primary', onclick: doSave }, '采纳并保存')) : null);
+}
+
 // ---------------------------------------------------------------- 教学大纲
 async function viewSyllabus(body) {
-  body.append(h('div', { class: 'tw-steps' },
-    h('span', { class: 'tw-step now' }, '① 教学大纲'),
-    h('span', { class: 'tw-step' }, '② 授课计划'),
-    h('span', { class: 'tw-step' }, '③ 课件生成')));
+  body.append(renderSteps('syllabus'));
 
-  if (!S.syllabus) {
-    try { S.syllabus = await api(`/api/courseware/syllabus/${S.courseId}`); } catch (e) { S.syllabus = null; }
-  }
+  await ensureSyllabus();
 
   const card = h('div', { class: 'card' },
     h('h3', {}, '教学大纲'),
@@ -104,7 +201,7 @@ async function viewSyllabus(body) {
       h('button', { class: 'primary', onclick: onGenSyllabus }, '生成 / 更新大纲')));
   body.append(card);
 
-  if (!S.syllabus || !S.syllabus.content) {
+  if (!S.syllabus) {
     body.append(h('div', { class: 'notice info' }, '尚未生成过大纲，点击上方按钮生成。'));
     return;
   }
@@ -120,14 +217,15 @@ async function viewSyllabus(body) {
     ...c.chapters.map((ch) => h('div', { class: 'tw-chapter' },
       h('h4', {}, `第 ${ch.seq} 章 · ${ch.unit}`),
       h('div', { class: 'kps' }, ch.kp_names.join('、')),
-      ch.narrative ? h('div', { class: 'narrative' }, ch.narrative) : null)));
+      ch.narrative ? h('div', { class: 'narrative' }, ch.narrative) : null,
+      chatWidget('syllabus_chapter', S.syllabus.id, ch.seq, (draft) => { ch.narrative = draft; }))));
   body.append(meta);
 }
 
 async function onGenSyllabus() {
   const fill = $('#syl-fill').checked;
-  const out = await api('/api/courseware/syllabus', { body: { course_id: S.courseId, fill_content: fill } });
-  S.syllabus = { id: out.syllabus_id, version: 1, status: 'draft', content: out.plan };
+  await api('/api/courseware/syllabus', { body: { course_id: S.courseId, fill_content: fill } });
+  S.syllabus = null;
   render();
 }
 
@@ -139,12 +237,12 @@ async function onConfirmSyllabus() {
 
 // ---------------------------------------------------------------- 授课计划
 async function viewTeachingPlan(body) {
-  body.append(h('div', { class: 'tw-steps' },
-    h('span', { class: 'tw-step done' }, '① 教学大纲'),
-    h('span', { class: 'tw-step now' }, '② 授课计划'),
-    h('span', { class: 'tw-step' }, '③ 课件生成')));
+  body.append(renderSteps('teaching_plan'));
 
-  if (!S.syllabus || !S.syllabus.id) {
+  await ensureSyllabus();
+  await ensureSessions();
+
+  if (!S.syllabus) {
     body.append(h('div', { class: 'notice bad' }, '请先在「教学大纲」页生成一版大纲。'));
     return;
   }
@@ -157,20 +255,18 @@ async function viewTeachingPlan(body) {
       h('button', { class: 'primary', onclick: onGenTeachingPlan }, '生成 / 更新授课计划')));
   body.append(card);
 
-  try { S.sessions = (await api(`/api/courseware/teaching-plan/${S.syllabus.id}`)).items; }
-  catch (e) { S.sessions = []; }
-
   if (!S.sessions.length) {
     body.append(h('div', { class: 'notice info' }, '尚未生成过授课计划。'));
     return;
   }
   body.append(h('div', { class: 'card' },
     ...S.sessions.map((s) => h('div', { class: 'tw-session' },
-      h('div', {},
+      h('div', { style: 'flex:1;min-width:0' },
         h('b', {}, `第 ${s.seq} 次 · ${s.title}`),
         h('div', { class: 'meta' }, `${s.kp_codes.length} 个知识点 · ${s.duration_min} 分钟`),
-        s.narrative ? h('div', { class: 'meta' }, s.narrative) : null),
-      h('button', { onclick: () => { S.view = 'deck'; S.deckSessionId = s.id; S.deck = null; render(); } }, '生成课件 →')))));
+        s.narrative ? h('div', { class: 'meta' }, s.narrative) : null,
+        chatWidget('session', s.id, null, (draft) => { s.narrative = draft; })),
+      h('button', { onclick: () => { S.view = 'deck'; S.deckSessionId = s.id; S.deckDetail = null; render(); } }, '生成课件 →')))));
 }
 
 async function onGenTeachingPlan() {
@@ -179,47 +275,72 @@ async function onGenTeachingPlan() {
   await api('/api/courseware/teaching-plan', {
     body: { syllabus_id: S.syllabus.id, session_minutes: minutes, fill_content: fill },
   });
+  await ensureSessions();
   render();
 }
 
 // ---------------------------------------------------------------- 课件生成
 async function viewDeck(body) {
-  body.append(h('div', { class: 'tw-steps' },
-    h('span', { class: 'tw-step done' }, '① 教学大纲'),
-    h('span', { class: 'tw-step done' }, '② 授课计划'),
-    h('span', { class: 'tw-step now' }, '③ 课件生成')));
+  body.append(renderSteps('deck'));
+
+  await ensureSyllabus();
+  await ensureSessions();
 
   if (!S.sessions.length) {
     body.append(h('div', { class: 'notice bad' }, '请先在「授课计划」页生成计划，再从某次课点「生成课件」。'));
     return;
   }
-  if (!S.deckSessionId) S.deckSessionId = S.sessions[0].id;
+  if (!S.deckSessionId || !S.sessions.find((s) => s.id === S.deckSessionId)) {
+    S.deckSessionId = S.sessions[0].id;
+  }
+  await ensureDeckDetail();
 
   const card = h('div', { class: 'card' },
     h('h3', {}, '课件生成'),
     h('p', { class: 'hint' }, '每个知识点一页要点骨架；有官方渲染器（OfficeCLI）用官方引擎出 pptx，没有则用内建引擎降级出 pptx，从不因为外部工具缺失而拿不到课件。'),
     h('div', { class: 'flexrow' },
-      h('select', { onchange: (e) => { S.deckSessionId = Number(e.target.value); } },
-        ...S.sessions.map((s) => h('option', {
-          value: s.id, selected: s.id === S.deckSessionId ? '' : null,
-        }, `第 ${s.seq} 次 · ${s.title}`))),
+      h('select', {
+        onchange: (e) => { S.deckSessionId = Number(e.target.value); S.deckDetail = null; render(); },
+      }, ...S.sessions.map((s) => h('option', {
+        value: s.id, selected: s.id === S.deckSessionId ? '' : null,
+      }, `第 ${s.seq} 次 · ${s.title}`))),
       h('label', {}, h('input', { type: 'checkbox', id: 'deck-fill', checked: '' }), ' 生成正式文案（否则只出结构骨架）'),
-      h('button', { class: 'primary', onclick: onGenDeck }, '生成课件')));
+      h('button', { class: 'primary', onclick: onGenDeck },
+        S.deckDetail ? '重新生成' : '生成课件')));
   body.append(card);
 
-  if (!S.deck) return;
-  body.append(caveatBox(S.deck) || h('div', {}));
-  const meta = S.deck.plan;
+  if (!S.deckDetail) {
+    body.append(h('div', { class: 'notice info' }, '这次课还没有课件，点上方按钮生成。'));
+    return;
+  }
+  body.append(caveatBox(S.deckNote) || h('div', {}));
+  const d = S.deckDetail;
+  const coverage = d.kp_coverage || [];
+  const required = new Set();
+  (d.deck_plan.slides || []).forEach((s) => (s.kp_codes || []).forEach((c) => required.add(c)));
+  const missing = [...required].filter((c) => !coverage.includes(c));
   body.append(h('div', { class: 'card' },
     h('div', { class: 'flexrow' },
-      h('span', { class: 'tag' }, meta.render_tool === 'officecli' ? '官方渲染引擎' : '内建降级引擎'),
-      h('span', { class: 'muted' }, meta.render_tool_version || ''),
-      meta.missing_kp_codes && meta.missing_kp_codes.length
-        ? h('span', { class: 'tag bad' }, `${meta.missing_kp_codes.length} 个知识点未覆盖`)
+      h('span', { class: 'tag' }, d.render_tool === 'officecli' ? '官方渲染引擎' : '内建降级引擎'),
+      h('span', { class: 'muted' }, d.render_tool_version || ''),
+      missing.length
+        ? h('span', { class: 'tag bad' }, `${missing.length} 个知识点未覆盖`)
         : h('span', { class: 'tag ok' }, '知识点全覆盖'),
-      h('a', { href: `/api/courseware/deck/${meta.deck_id}/file?token=${encodeURIComponent(S.token)}`,
-               target: '_blank' }, h('button', {}, '下载课件文件'))),
-  ));
+      h('button', { onclick: onRerenderDeck }, '按当前文字重新渲染文件'),
+      h('a', { href: `/api/courseware/deck/${d.id}/file?token=${encodeURIComponent(S.token)}`,
+               target: '_blank' }, h('button', {}, '下载课件文件')))));
+
+  body.append(h('div', { class: 'card' },
+    ...(d.deck_plan.slides || []).map((s, i) => h('div', { class: 'tw-slide' },
+      h('div', { class: 'layout-tag' }, s.layout),
+      h('h4', {}, s.title || `第 ${i + 1} 页`),
+      s.subtitle ? h('div', { class: 'meta' }, s.subtitle) : null,
+      s.bullets && s.bullets.length ? h('ul', {}, ...s.bullets.map((b) => h('li', {}, b))) : null,
+      s.layout === 'bullets'
+        ? chatWidget('slide', d.id, i, (draft, bullets) => {
+            s.bullets = bullets || s.bullets;
+          })
+        : null))));
 }
 
 async function onGenDeck() {
@@ -227,7 +348,15 @@ async function onGenDeck() {
   const out = await api('/api/courseware/deck', {
     body: { teaching_plan_id: S.deckSessionId, fill_content: fill },
   });
-  S.deck = out;
+  S.deckNote = out;
+  await ensureDeckDetail();
+  render();
+}
+
+async function onRerenderDeck() {
+  const out = await api(`/api/courseware/deck/${S.deckDetail.id}/rerender`, { body: {} });
+  S.deckNote = out;
+  await ensureDeckDetail();
   render();
 }
 
