@@ -140,10 +140,26 @@ class TestLayering(unittest.TestCase):
         """任何 LLM 调用必须经 packages/llm。"""
         sdks = {"openai", "anthropic", "dashscope", "zhipuai", "langchain", "litellm"}
         for d in ("graph", "state", "engagement", "errors", "rag", "agents", "adapters",
-                  "quiz", "tools", "skills", "exam"):
+                  "quiz", "tools", "skills", "exam", "courseware"):
             for f in pkg_files(d):
                 for m in imports_of(f):
                     self.assertNotIn(m.split(".")[0], sdks, f"{f} 直接 import 了大模型 SDK")
+
+    def test_courseware_does_not_write_mastery_directly(self):
+        """课件/大纲/授课计划生成层同样不得绕过 tracker 写掌握度（铁律 1）。"""
+        for f in pkg_files("courseware"):
+            src = f.read_text(encoding="utf-8")
+            self.assertNotIn("write_mastery", identifiers(f), f"{f.name} 直接写了掌握度")
+            self.assertNotIn("UPDATE mastery_state", src, f"{f.name} 直接改了掌握度表")
+            self.assertNotIn("INSERT INTO mastery_state", src, f"{f.name} 直接写了掌握度表")
+
+    def test_courseware_subprocess_confined_to_render_module(self):
+        """外部渲染二进制（OfficeCLI）的调用必须收敛到 officecli_render.py 一处，
+        便于审计与替换——不允许在包内其他文件里悄悄再开一条 subprocess 调用。"""
+        for f in pkg_files("courseware"):
+            if f.name == "officecli_render.py":
+                continue
+            self.assertNotIn("subprocess", identifiers(f), f"{f.name} 不应直接调用 subprocess")
 
     def test_api_layer_has_no_business_logic(self):
         """apps/api 仅路由与鉴权：不得出现 BKT、图算法等业务符号。"""

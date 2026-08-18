@@ -80,6 +80,20 @@ class OfflineClient:
             return self._research(fields)
         if intent == "图表解读":
             return self._figure(fields)
+        if intent == "教学大纲章节说明":
+            return self._syllabus_chapter(fields)
+        if intent == "授课计划说明":
+            return self._teaching_plan_session(fields)
+        if intent == "课件要点":
+            return self._deck_bullets(fields)
+        if intent == "课件概念讲解":
+            return self._deck_concept(fields)
+        if intent == "教学大纲章节说明修订":
+            return self._revise(fields, "现有说明")
+        if intent == "授课计划说明修订":
+            return self._revise(fields, "现有说明")
+        if intent == "课件要点修订":
+            return self._revise(fields, "现有要点")
         return "（离线表达器）已按结构化输入生成，如下：\n" + user.strip()[:600]
 
     def _ask(self, f: dict) -> str:
@@ -139,6 +153,58 @@ class OfflineClient:
             f"降级热点：{f.get('降级热点', '暂无')}。\n"
             f"建议动作：{f.get('下一步', '优先联系名单内学生')}。\n"
             "（本简报只描述学情与系统状态，不生成任何针对教师的评价性数据）"
+        )
+
+    def _syllabus_chapter(self, f: dict) -> str:
+        kps = f.get("知识点", "")
+        return (
+            f"本章围绕「{f.get('章节', '本章')}」展开，覆盖知识点：{kps or '（无）'}。\n"
+            f"学完本章应能把这些知识点用于后续章节与项目任务，建议按知识点列出的顺序学习。\n"
+            "（离线模板：未接入大模型时的结构化占位文案，不影响章节结构本身的正确性）"
+        )
+
+    def _teaching_plan_session(self, f: dict) -> str:
+        return (
+            f"本次课主题「{f.get('本次课主题', '')}」，课时 {f.get('课时', '90 分钟')}。\n"
+            f"知识点：{f.get('知识点', '（无）')}。\n"
+            "建议环节：导入（回顾前置知识）→ 讲授（本次课知识点）→ 练习（结合项目任务）→ 小结。"
+        )
+
+    def _deck_bullets(self, f: dict) -> str:
+        kp = f.get("知识点", "该知识点")
+        mat = (f.get("教材依据") or "").strip()
+        lines = [f"「{kp}」的定义与适用场景"]
+        if mat:
+            lines.append(first_sentence(mat)[:60])
+        lines += [f"「{kp}」的常见误区", f"「{kp}」与前置知识点的联系", "课堂练习/思考题"]
+        return "；".join(lines)
+
+    def _deck_concept(self, f: dict) -> str:
+        """离线模式下的课件概念讲解：同样按 `- 字段：值` 格式回复，保证在线/离线
+        走的是同一条解析路径——只是内容是模板，不是真的类比/易错点。"""
+        kp = f.get("知识点", "该知识点")
+        mat = (f.get("教材依据") or "").strip()
+        analogy = (f"可以把「{kp}」类比成一个你熟悉的日常流程——"
+                   "具体怎么类比，离线模式给不出真实答案，接入大模型后重新生成即可获得。")
+        points = [f"「{kp}」的定义与适用场景", f"「{kp}」与前置知识点的联系"]
+        if mat:
+            points.append(first_sentence(mat)[:60])
+        return (
+            f"- 一句话类比：{analogy}\n"
+            f"- 讲解要点：{'；'.join(points)}\n"
+            f"- 应用例子：结合项目任务实践「{kp}」\n"
+            "- 易错点建议："
+        )
+
+    def _revise(self, f: dict, existing_key: str) -> str:
+        """离线模式下的"对话式修订"：不真正理解指令，只做确定性的可见反馈，
+        提醒教师这不是真改写——避免看起来像是模型认真改了、实际没有。"""
+        existing = f.get(existing_key, "")
+        instr = f.get("教师指令", "")
+        return (
+            f"{existing}\n\n"
+            f"（离线模式下无法真正按「{instr}」重新组织文字，以上原样保留；"
+            "接入大模型后重新发起这次修订即可获得真实改写效果。）"
         )
 
     def _copilot(self, f: dict) -> str:

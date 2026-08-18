@@ -58,6 +58,11 @@ class TeachingConfig:
     keyword_fail_ratio: float = 0.2
     # 生成段落与检索材料的 n-gram 重合率低于该值即标"低支撑"
     groundedness_threshold: float = 0.35
+    # ---- 教师工作台 · 教学资产生成（见 packages/courseware）----
+    # 授课计划切课：一次课最多覆盖多少个知识点，超出则拆成多次课
+    max_kp_per_session: int = 6
+    # 课件生成：每张内容页最多保留多少条要点（express() 产出的文本会被裁到这个数量）
+    deck_max_bullets_per_slide: int = 5
     # BKT 课程级默认参数（冷启动）
     bkt_default: dict = field(
         default_factory=lambda: {
@@ -92,6 +97,9 @@ class Config:
     embed_model: str = "hashed-char-bigram-tfidf"
     embed_version: str = "v1"
     embed_dim: int = 256
+    # 课件渲染器（可替换件）。二进制不存在/调用失败时自动降级为内建 stdlib pptx 引擎。
+    officecli_path: str = "/opt/officecli/officecli"
+    officecli_timeout_s: int = 30
     teaching: TeachingConfig = field(default_factory=TeachingConfig)
 
     def to_dict(self) -> dict[str, Any]:
@@ -116,6 +124,7 @@ def load_config() -> Config:
         "LLM_BASE_URL": "llm_base_url",
         "LLM_API_KEY": "llm_api_key",
         "LLM_MODEL": "llm_model",
+        "AIEDU_OFFICECLI_PATH": "officecli_path",
     }
     for env, attr in env_map.items():
         if os.environ.get(env):

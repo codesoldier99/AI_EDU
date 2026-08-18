@@ -255,6 +255,12 @@ collaboration    协作记录：看板流转、评审互动、接口沟通
 - 任何 LLM 调用必须经 `packages/llm`，禁止业务代码直接 import openai
 - 数据库写操作走 repository 层，禁止在 agent 里写 SQL
 - 新增功能必须附 pytest；涉及状态变更的必须有事件流重算测试
+- **迁移文件名一旦被应用过就不许改名。** 迁移是按**文件名**记录在 `schema_migration`
+  里的，改名等于让所有已升级的库重跑一遍。多人并行开发时编号撞车（两个 `003_`）
+  是正常的，也无害——按文件名排序仍然确定。撞车了就让它撞着，别改名。
+  新迁移取号请先 `ls migrations/` 看最大值再 +1，并一律写 `IF NOT EXISTS`。
+- **测试不要断言运行环境。** 需要离线表达器就用 `tests/base.OfflineLLMMixin` 钉死，
+  别依赖"本机没配 API Key"——同事配了 Key 你的测试就红，而红的原因与被测行为无关
 - **前端与后端同构**：可确定性计算的部分抽成纯模块（`kg-core.js`）并单测，
   渲染壳只管画。这与 agents 的 `plan()` / `express()` 是同一条规矩
 - **前端不得引入 CDN 依赖**：第三方库一律 vendor 到 `apps/web/vendor/`，

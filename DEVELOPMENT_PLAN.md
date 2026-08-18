@@ -469,6 +469,23 @@ streak        连续活跃天数
 | 4 画像验证 | 部分 | `packages/agents/profile.py` | 画像已上线；**对照实验数据采集尚未开始** |
 | 4 效果验证 | 进行中 | `packages/exam`、`docs/measurement-plan.md`、`data/seed/exam_ml_selection.yaml` | 选拔考系统 26 用例；答案键自洽校验（填标准答案得满分）；考生令牌越权一律 403 |
 | 3.6 学习工作台 | ✅ | `packages/{quiz,tools,skills}`、`packages/agents/{quiz,solve,research,visualize}.py`、`apps/web/study.js` | `make test-study` 64 用例；`make practice` 输出可解释的选点理由；离线与真实底座两条路都跑通出题→审核→组卷→批改 |
+| 教师工作台 · Phase A | ✅ | `packages/courseware/`、`apps/web/teacher/` | 大纲→授课计划→课件链路可用（见下方说明）；`make test` 含 `test_courseware.py` |
+
+**教师工作台 Phase A（教学大纲 → 授课计划 → 课件生成）：** 落地 1.1 节"基础文档生成"
+的前三项。新增 `packages/courseware/` 包（`syllabus.py`/`teaching_plan.py`/`deck.py`
+沿用 `plan()`/`express()` 二段式，复用 `graph.algo.topological_sort`/`task.compute_gap`
+同款确定性排序），`apps/web/teacher/` 独立教师工作台页面（侧边栏导航，暂 3/7 个入口可用，
+其余标注"即将上线"）。课件渲染分两级：优先调用 [OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)
+（外部 .NET 自包含二进制，纯确定性 OOXML 引擎，不含 LLM），不可用时自动降级到
+`packages/courseware/pptx_writer.py`（从 `scripts/make_deck.py` 抽出的纯 stdlib 引擎，
+`scripts/make_deck.py` 现在也改为依赖它，避免同一段 OOXML 拼装逻辑存在两份）——
+教师任何时候都能拿到一份真实可打开的 pptx，只是版式在降级时更简单。
+`DeckPlan.kp_coverage()` 提供机器可验证的知识点覆盖率校验，作为"质量高于纯 LLM 直接
+生成"的具体落点。
+
+> **合并说明（本次）：** 上文原写"评卷与试卷题库仍待做"，现已由 `packages/quiz`
+> （题库 + 确定性判分）与 `packages/exam`（在线考试、判分、切线）补齐，
+> 该句已失效。教师工作台剩余的成绩分析、达成度评价、课堂练习仍为前端占位。
 
 ### 与原计划的差异及理由
 

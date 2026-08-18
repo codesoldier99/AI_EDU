@@ -204,6 +204,32 @@ cd tests && sudo -u aiedu -H python3.11 -m unittest test_layering -q   # 架构�
 浏览器打开 `https://<域名>/`（或校内地址），确认右上角显示"大模型：离线降级"
 （或已配置的模型名），切换身份能看到各自应看到的数据、看不到其他班级。
 
+### 3.10 可选：安装 OfficeCLI（教师工作台 · 课件生成引擎）
+
+不装也能用——`packages/courseware` 会自动降级到内建 stdlib 引擎生成 pptx，
+只是版式更简单（见 `packages/courseware/officecli_render.py` 的降级说明）。
+要用官方引擎（支持图表/动画/模板 merge 等更丰富的版式），装
+[OfficeCLI](https://github.com/iOfficeAI/OfficeCLI)（.NET 自包含二进制，
+不需要 Office、不需要 API Key、内部不调用任何 LLM）：
+
+```bash
+# 用官方安装脚本装到固定路径，不要用会自动升级的一键脚本，
+# 避免服务器上悄悄换版本导致课件排版突然变化（渲染器版本会被记进
+# courseware_deck.render_tool_version，换版本至少留痕可查）
+curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh \
+  | bash -s -- --prefix /opt/officecli
+/opt/officecli/officecli --version
+```
+
+`app.env` 里追加（默认路径就是 `/opt/officecli/officecli`，不同路径才需要设置）：
+
+```bash
+AIEDU_OFFICECLI_PATH=/opt/officecli/officecli
+```
+
+重启服务后，教师工作台生成课件时会优先走这条路径；探测失败（未安装/版本不对/
+调用超时）会自动降级，不影响其他功能。
+
 ---
 
 ## 4. 关于鉴权的强烈建议（部署前必读，优先级高于其他一切美化）

@@ -108,6 +108,8 @@ def route(intent: str) -> str:
         "copilot": "project",
         "credit_map": "program",
         "syllabus": "program",
+        "teaching_plan": "program",
+        "deck": "course",
     }.get(intent, "course")
 
 
