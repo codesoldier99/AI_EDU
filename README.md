@@ -295,6 +295,46 @@ style: 反例质疑
 
 ---
 
+## 在线考试与两年成效测评
+
+2026 级专升本 128 人全部录取，按入学选拔考**严格按分数线**取前 53 人进实验班。
+这个设置有一个免费的副产品：**落选的 75 人是天然对照组，而分数线构成断点回归设计**。
+
+```
+卡在分数线上下一两分的学生，能力上几乎不可区分，
+唯一差别是一个进了实验班、一个没进 —— 这就把
+"你们班成绩好是因为挑走了好学生"这个反驳排除掉了。
+```
+
+完整方案见 [`docs/measurement-plan.md`](docs/measurement-plan.md)：两年 6 个测点、
+四类合法指标（延迟后测 / 迁移任务 / 项目产出 / 主动使用率）、
+以 T0 为协变量的 ANCOVA 主分析 + RDD 稳健性检验，以及必须预注册的内容。
+
+**试卷的双重身份**是这套设计最需要小心的地方：
+
+| | A 部分 · 概念锚题 40 分 | B 部分 · 选拔专用 60 分 |
+|---|---|---|
+| 用途 | 两年内反复重测的基线 | 一次性选拔 |
+| 考后 | **不讲评、不返还、不公布答案** | 公开讲评 |
+| 题库 | `origin='anchor'`，被日常组卷池排除 | 正常题库 |
+
+50 题 / 100 分 / 60 分钟，五种题型；其中 **90 分自动判分**，只有 2 道程序题需人工——
+自动判分越多，分数线附近受判分噪声干扰越小，断点回归才干净。
+
+```bash
+make exam-setup                            # 导入并发布选拔考卷
+make exam A="tickets ML-SELECT-2026"       # 签发一次性准考口令（学号 + 6 位口令）
+make exam A="monitor ML-SELECT-2026"       # 考场监控
+make exam A="rank ML-SELECT-2026 53"       # 切线（含并列裁决与风险警告）
+make exam A="export ML-SELECT-2026"        # 导出 RDD 分析数据集
+```
+
+考场页面 `/exam.html` 是独立页面，**没有任何通往教学系统的入口**；
+考生令牌 `exam:<随机串>` 与教学令牌完全隔离，碰不到掌握度、碰不到别人、碰不到答案。
+倒计时以服务端为准——改本机时间是最低成本的作弊方式。
+
+---
+
 ## 关于"不做什么"
 
 - ❌ 不让大模型判断"学生是否掌握某知识点"——必须由 BKT 依据事件产生
@@ -348,6 +388,7 @@ packages/errors     错误模式库（最有价值的资产）
 packages/quiz       题库 + 确定性选题 + 确定性判分（不依赖大模型）
 packages/tools      确定性工具箱：安全算术求值、落地性检查（零依赖叶子）
 packages/skills     教学技能包装载（SKILL.md）
+packages/exam       在线考试：准考凭据、服务端计时、判分、切线、导出
 packages/rag        三个知识库 + 图谱结构化过滤的混合召回
 packages/llm        大模型统一封装（可替换层）
 packages/agents     L3 智能体 + 知识宇宙视图投影
@@ -356,7 +397,7 @@ migrations          数据库迁移与约束
 data/seed           课程图谱 / 项目任务 / 知识库 / 规则映射（教师可直接维护）
 skills              教学技能包（教师可写，进 git，不从网上装）
 scripts             seed / demo / replay / gap / practice / skills / lint / mock_llm / make_deck
-tests               177 个用例，含架构铁律、换模型不变性、判分边界、前端布局物理
+tests               207 个用例，含架构铁律、换模型不变性、判分边界、考试权限隔离
 docs                架构说明、标注规范、API、演示脚本
 ```
 
@@ -372,6 +413,8 @@ make replay STUDENT=1               # 从事件流重算，校验一致性
 make gap STUDENT=1 TASK=T-AGV-3     # 打印任务知识缺口
 make practice STUDENT=1             # 打印此刻该练什么及其理由
 make skills                         # 列出已装载的教学技能包
+make exam-setup                     # 导入并发布选拔考卷
+make exam A="rank ML-SELECT-2026"   # 考试运维（tickets/monitor/pending/rank/export）
 make test-study                     # 仅测学习工作台
 make lint                           # 静态检查
 make reset                          # 清空数据库
@@ -390,6 +433,7 @@ python3 aiedu.py <同名子命令>        # 无 make 环境的等价入口
 - [`docs/decisions.md`](docs/decisions.md) —— 待教师团队拍板的参数
 - [`docs/learnvector-研判.md`](docs/learnvector-研判.md) —— LearnVector 研判：吸收什么、不跟什么
 - [`docs/deeptutor-研判.md`](docs/deeptutor-研判.md) —— DeepTutor 研判：抄能力，不抄判断权
+- [`docs/measurement-plan.md`](docs/measurement-plan.md) —— **两年成效量化测评方案**（断点回归、锚题、预注册）
 - [`CLAUDE.md`](CLAUDE.md) —— 架构铁律与开发规范（每次开工必读）
 - [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) —— 分阶段开发计划与验收标准
 

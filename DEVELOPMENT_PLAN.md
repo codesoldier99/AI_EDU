@@ -467,6 +467,7 @@ streak        连续活跃天数
 | 2 追问审查 | ✅ | `packages/agents/{asking,review}.py` | 未降级不给答案；降级写事件；只有 reliable 映射经教师采纳才回写 L2 |
 | 3 拉取+项目 | ✅ | `packages/agents/task.py`、`packages/adapters/`、`apps/web/` | `make gap` 输出合理；新增适配器核心代码 md5 不变；学生端与副驾驶可用 |
 | 4 画像验证 | 部分 | `packages/agents/profile.py` | 画像已上线；**对照实验数据采集尚未开始** |
+| 4 效果验证 | 进行中 | `packages/exam`、`docs/measurement-plan.md`、`data/seed/exam_ml_selection.yaml` | 选拔考系统 26 用例；答案键自洽校验（填标准答案得满分）；考生令牌越权一律 403 |
 | 3.6 学习工作台 | ✅ | `packages/{quiz,tools,skills}`、`packages/agents/{quiz,solve,research,visualize}.py`、`apps/web/study.js` | `make test-study` 64 用例；`make practice` 输出可解释的选点理由；离线与真实底座两条路都跑通出题→审核→组卷→批改 |
 
 ### 与原计划的差异及理由
@@ -487,6 +488,9 @@ streak        连续活跃天数
 
 ### 下一步
 
+- **T0 选拔考落地**（最紧的一件）：128 人名单入库、签发准考证、考场网络与并发压测。
+- 预注册：分组规则与主分析模型必须在考试**之前**登记存档（measurement-plan §8）。
+- 实验班管理办法里写明「两年内只进不出」——差异流失会摧毁整个准实验设计。
 - 题库覆盖：`make practice` 已经在报"该练但没题"的知识点，教师优先在这些点上出题。
 - Phase 4 的对照实验数据采集设计（实验班 vs 同专业普通班，延迟后测为主指标，研究方案预注册）。
 - `docs/decisions.md` 中 13 项参数的教师团队拍板。

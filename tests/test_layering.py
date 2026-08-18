@@ -89,6 +89,25 @@ class TestLayering(unittest.TestCase):
                 self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
                 self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
 
+    def test_exam_never_touches_llm_or_agents(self):
+        """考试是判定，不是表达。整条链路上不许出现大模型。
+
+        分数决定谁进实验班、也是两年纵向研究的基线。任何一处让模型参与判定，
+        这个基线就不可复算，论文里也交代不过去。
+        """
+        for f in pkg_files("exam"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
+                self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
+
+    def test_anchor_items_excluded_from_practice_pool(self):
+        """概念锚题两年内要重测，绝不能进日常组卷池——泄漏一次纵向比较就报废。"""
+        src = (ROOT / "packages" / "quiz" / "bank.py").read_text(encoding="utf-8")
+        self.assertIn("anchor", src)
+        for fn in ("list_for_kp", "list_pending"):
+            body = src.split(f"def {fn}(")[1].split("\ndef ")[0]
+            self.assertIn("origin<>'anchor'", body, f"{fn} 没有排除锚题")
+
     def test_tools_depend_on_nothing(self):
         """确定性工具箱是叶子节点：谁都能用它，它谁都不用。"""
         for f in pkg_files("tools"):
@@ -121,7 +140,7 @@ class TestLayering(unittest.TestCase):
         """任何 LLM 调用必须经 packages/llm。"""
         sdks = {"openai", "anthropic", "dashscope", "zhipuai", "langchain", "litellm"}
         for d in ("graph", "state", "engagement", "errors", "rag", "agents", "adapters",
-                  "quiz", "tools", "skills"):
+                  "quiz", "tools", "skills", "exam"):
             for f in pkg_files(d):
                 for m in imports_of(f):
                     self.assertNotIn(m.split(".")[0], sdks, f"{f} 直接 import 了大模型 SDK")

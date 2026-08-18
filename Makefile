@@ -1,7 +1,7 @@
 PY ?= python3
 PORT ?= 8900
 
-.PHONY: help dev migrate seed demo mock-llm test test-state test-study lint replay gap practice skills clean reset check
+.PHONY: help dev migrate seed demo mock-llm test test-state test-study lint replay gap practice skills exam exam-setup clean reset check
 
 help:
 	@echo "院长实验班 AI 教学系统"
@@ -15,11 +15,16 @@ help:
 	@echo "  make test                     全量测试"
 	@echo "  make test-state               仅测状态层（改 BKT 后必跑）"
 	@echo "  make test-study               仅测学习工作台（题库/判分/解题/调研/图示）"
+	@echo "  make test-exam                仅测在线考试（凭据/计时/判分/切线/权限）"
 	@echo "  make lint                     静态检查（无 ruff 时退化为语法与规范自检）"
 	@echo "  make replay STUDENT=<id>      从事件流重算状态，校验一致性"
 	@echo "  make gap STUDENT=<id> TASK=<code>   打印任务知识缺口"
 	@echo "  make practice STUDENT=<id> [TASK=<code>]  打印此刻该练什么及其理由"
 	@echo "  make skills                   列出已装载的教学技能包"
+	@echo ""
+	@echo "  make exam-setup               导入并发布选拔考卷 + 签发准考证"
+	@echo "  make exam A=\"rank ML-SELECT-2026\"   考试运维（import/publish/tickets/"
+	@echo "                                monitor/sweep/pending/score/rank/export）"
 	@echo "  make check                    架构铁律自检"
 	@echo "  make reset                    清空数据库（不动代码与种子）"
 	@echo ""
@@ -52,6 +57,9 @@ test-state:
 test-study:
 	cd tests && $(PY) -m unittest test_tools test_quiz test_study test_skills -v
 
+test-exam:
+	cd tests && $(PY) -m unittest test_exam -v
+
 lint:
 	$(PY) scripts/lint.py
 
@@ -69,6 +77,16 @@ practice:
 
 skills:
 	$(PY) scripts/skills.py
+
+exam:
+	$(PY) scripts/exam.py $(A)
+
+exam-setup:
+	$(PY) scripts/exam.py import data/seed/exam_ml_selection.yaml
+	$(PY) scripts/exam.py publish ML-SELECT-2026
+	@echo ""
+	@echo "签发准考证：make exam A=\"tickets ML-SELECT-2026\""
+	@echo "考场地址：  http://<服务器>/exam.html?exam=ML-SELECT-2026"
 
 reset:
 	rm -rf var/aiedu.db var/aiedu.db-wal var/aiedu.db-shm

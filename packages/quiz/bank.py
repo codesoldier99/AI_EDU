@@ -17,7 +17,9 @@ from packages.core.timeutil import now_str
 
 QTYPES = ("choice", "numeric", "short", "code")
 GRADERS = ("choice", "numeric", "keyword", "manual")
-ORIGINS = ("llm", "teacher", "import")
+ORIGINS = ("llm", "teacher", "import", "anchor")
+# anchor = 概念锚题：两年内要反复重测，**绝不进日常组卷池**，
+# 也绝不在考后讲评。泄漏一次，纵向比较就报废（docs/measurement-plan.md §3.2）。
 
 
 @dataclass
@@ -102,7 +104,8 @@ def add(
     if not citations and origin == "llm":
         # 无教材依据的模型出题一律拒收——RAG 约束是硬约束，不是建议
         raise ValueError("模型生成的题必须携带教材依据（citations）")
-    verified = teacher_verified if teacher_verified is not None else int(origin == "teacher")
+    verified = (teacher_verified if teacher_verified is not None
+                else int(origin in ("teacher", "anchor")))
 
     db = get_db()
     sig = signature(stem, answer)
@@ -137,7 +140,7 @@ def list_for_kp(kp_id: int, verified_only: bool = True, limit: int = 50) -> list
     sql = (
         "SELECT q.*, k.name AS kp_name FROM question q"
         " JOIN knowledge_point k ON k.id=q.kp_id"
-        " WHERE q.kp_id=? AND q.retired=0"
+        " WHERE q.kp_id=? AND q.retired=0 AND q.origin<>'anchor'"
     )
     if verified_only:
         sql += " AND q.teacher_verified=1"
@@ -150,7 +153,8 @@ def list_pending(limit: int = 100) -> list[Question]:
     rows = get_db().query(
         "SELECT q.*, k.name AS kp_name FROM question q"
         " JOIN knowledge_point k ON k.id=q.kp_id"
-        " WHERE q.teacher_verified=0 AND q.retired=0 ORDER BY q.id LIMIT ?",
+        " WHERE q.teacher_verified=0 AND q.retired=0 AND q.origin<>'anchor'"
+        " ORDER BY q.id LIMIT ?",
         (limit,),
     )
     return [_row_to_q(r) for r in rows]
@@ -205,7 +209,8 @@ def stats() -> dict:
     db = get_db()
     row = db.query_one(
         "SELECT COUNT(*) AS total,"
-        " SUM(CASE WHEN teacher_verified=1 AND retired=0 THEN 1 ELSE 0 END) AS usable,"
+        " SUM(CASE WHEN teacher_verified=1 AND retired=0 AND origin<>'anchor'"
+        "          THEN 1 ELSE 0 END) AS usable,"
         " SUM(CASE WHEN teacher_verified=0 AND retired=0 THEN 1 ELSE 0 END) AS pending,"
         " SUM(retired) AS retired FROM question"
     ) or {}
@@ -220,5 +225,8 @@ def stats() -> dict:
         "by_type": {r["qtype"]: r["n"] for r in by_type},
         "kp_covered": db.scalar(
             "SELECT COUNT(DISTINCT kp_id) FROM question WHERE retired=0 AND teacher_verified=1"
+            " AND origin<>'anchor'"
         ) or 0,
+        "anchor": db.scalar(
+            "SELECT COUNT(*) FROM question WHERE retired=0 AND origin='anchor'") or 0,
     }

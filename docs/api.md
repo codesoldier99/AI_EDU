@@ -136,6 +136,31 @@
 | GET | `/api/figure?kind=&kp_id=` | `kind ∈ {mastery_bars, retention_curve, ability_radar, root_cause_chain}`。返回服务端生成的 SVG + 模型写的解读；根因链另附 Mermaid 源码 |
 | GET | `/api/skills` | 公开：已装载的教学技能包及其文件指纹 |
 
+## 在线考试
+
+设计见 `docs/measurement-plan.md`。**考生令牌 `exam:<随机串>` 与教学令牌完全隔离**：
+它只能访问下表中标注 `examinee` 的接口，碰不到掌握度、碰不到别人、碰不到答案。
+
+| 方法 | 路径 | 角色 | 说明 |
+|---|---|---|---|
+| POST | `/api/exam/login` | 公开 | `{exam_code, sid, ticket}` → 会话令牌。全系统唯一对未鉴权请求开放的写接口 |
+| GET | `/api/exam/paper` | examinee | 本人卷面。**不含 answer / rationale / keywords / grader** |
+| POST | `/api/exam/save` | examinee | `{question_id, response}`，前端每 15 秒兜底保存一次 |
+| POST | `/api/exam/submit` | examinee | 交卷 → 冻结卷面 → 判分 → 判定结果写事件流 |
+| GET | `/api/exam/heartbeat` | examinee | 剩余秒数。**倒计时以此为准，不信客户端时钟** |
+| GET | `/api/exam/list` | 教师 | 考试列表 |
+| GET | `/api/exam/{id}/spec` | 教师 | 试卷快照（发布后冻结） |
+| POST | `/api/exam/{id}/publish` | 教师 | 发布即冻结，之后不能改题 |
+| POST | `/api/exam/{id}/tickets` | 教师 | 签发一次性准考口令 |
+| GET | `/api/exam/{id}/monitor` | 教师 | 考场监控：谁在考、谁交了、谁没来 |
+| POST | `/api/exam/{id}/sweep` | 教师 | 收回所有超时未交的卷 |
+| GET | `/api/exam/{id}/pending` | 教师 | 待人工判分队列（程序题在此） |
+| POST | `/api/exam/score` | 教师 | `{session_id, question_id, score, note}` → 人工给分，同时补写事件 |
+| GET | `/api/exam/{id}/ranking?cutoff=53` | 教师 | 排名与切线，含并列裁决依据与风险警告 |
+| GET | `/api/exam/{id}/export` | 教师 | 分析数据集：running variable、处理变量、中心化分数 |
+
+考场页面：`/exam.html?exam=<考试代码>`（独立页面，无任何通往教学系统的入口）。
+
 ## 作答回流
 
 | 方法 | 路径 | 说明 |

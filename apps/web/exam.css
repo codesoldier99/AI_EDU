@@ -1,0 +1,57 @@
+/* 考场页面：刻意做得朴素。
+   考试中最重要的不是好看，是别丢答案、别看错时间、别点到不该点的地方。
+   所以这里没有任何跳转到教学系统的入口——考场就该是个封闭空间。 */
+.exam-body{background:var(--bg);color:var(--ink)}
+.exam-login{max-width:420px;margin:8vh auto;padding:28px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.exam-login h1{font-size:18px;margin-bottom:6px}
+.exam-login p.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+.exam-login label{display:block;font-size:13px;margin:12px 0 4px;color:var(--muted)}
+.exam-login input{width:100%;font-size:15px;padding:9px 11px}
+.exam-login input#ticket{letter-spacing:3px;text-transform:uppercase;font-family:ui-monospace,monospace}
+.exam-login button{width:100%;margin-top:18px;padding:10px;font-size:15px}
+
+.exam-top{position:sticky;top:0;z-index:20;display:flex;justify-content:space-between;
+  align-items:center;gap:14px;padding:10px 20px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.exam-top .who{font-size:13px;color:var(--muted)}
+.exam-clock{font-family:ui-monospace,monospace;font-size:24px;font-weight:650;
+  letter-spacing:1px;padding:2px 12px;border-radius:8px}
+.exam-clock.warn{color:#fff;background:var(--warn)}
+.exam-clock.danger{color:#fff;background:var(--bad);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.save-state{font-size:12px;color:var(--muted);min-width:96px;text-align:right}
+.save-state.bad{color:var(--bad);font-weight:600}
+
+.exam-wrap{display:grid;grid-template-columns:1fr 220px;gap:20px;max-width:1180px;
+  margin:0 auto;padding:20px}
+@media(max-width:860px){.exam-wrap{grid-template-columns:1fr}.exam-nav{order:-1}}
+.exam-nav{position:sticky;top:64px;align-self:start;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+.exam-nav h4{font-size:13px;margin-bottom:8px}
+.navgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
+.navgrid button{padding:5px 0;font-size:12px;border-radius:5px}
+.navgrid button.done{background:var(--accent);border-color:var(--accent);color:#fff}
+.navgrid button.cur{outline:2px solid var(--warn);outline-offset:1px}
+
+.q{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;margin-bottom:14px;scroll-margin-top:72px}
+.q .qhead{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+.q .qno{font-weight:700;font-size:15px}
+.q .stem{white-space:pre-wrap;line-height:1.75;margin-bottom:12px}
+.q .stem code,.q pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.q pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+  padding:10px 12px;overflow-x:auto;font-size:13px;line-height:1.6}
+.opt{display:flex;gap:9px;align-items:flex-start;padding:7px 9px;border-radius:6px;
+  cursor:pointer;border:1px solid transparent}
+.opt:hover{background:var(--accent-soft)}
+.opt.sel{background:var(--accent-soft);border-color:var(--accent)}
+.opt input{margin-top:3px}
+.q input.fill{width:220px;font-size:15px}
+.q textarea{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:13px;line-height:1.6}
+.exam-submit{margin:26px 0 60px;text-align:center}
+.exam-submit button{padding:11px 34px;font-size:16px}
+.exam-done{max-width:520px;margin:10vh auto;text-align:center;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius);padding:36px}
+.exam-done h2{font-size:20px;margin-bottom:10px}

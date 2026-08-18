@@ -7,6 +7,11 @@
 
 演示令牌格式：`teacher:<工号>` / `student:<学号>`。
 接校内统一身份认证时替换 resolve() 即可，路由层不动。
+
+**考试令牌是例外，必须单独看待。** `exam:<随机串>` 由 packages/exam/session 在开考时
+签发，role='examinee'，只能走标记了 role="examinee" 的考试接口。
+理由：教学侧的 `student:2026001` 是可猜的明文格式，用它来考试等于分数可改；
+而考生令牌一旦泄漏也只能看到自己那张卷子，看不到掌握度、看不到别人、更看不到答案。
 """
 from __future__ import annotations
 
@@ -29,6 +34,19 @@ def resolve(token: str) -> dict:
             raise HTTPError(401, f"未知教师工号 {ident}")
         return {"role": "teacher", "code": t["code"], "name": t["name"],
                 "klasses": loads(t["klasses"], [])}
+    if role == "exam":
+        # 考试会话令牌。故意不查 student 表以外的任何东西——
+        # 这个身份的权限边界就是"我这一场考试的我这张卷子"。
+        from packages.exam import session as exam_session
+
+        try:
+            se = exam_session.resolve_token(ident)
+        except ValueError as exc:
+            raise HTTPError(401, str(exc)) from exc
+        st = db.query_one("SELECT * FROM student WHERE id=?", (se["student_id"],))
+        return {"role": "examinee", "session_id": se["id"], "exam_id": se["exam_id"],
+                "student_id": se["student_id"], "sid": st["sid"] if st else "",
+                "name": st["name"] if st else "", "exam_token": ident}
     if role == "student":
         s = db.query_one("SELECT * FROM student WHERE sid=?", (ident,))
         if not s:
@@ -44,6 +62,11 @@ def middleware(req: Request, meta: dict) -> None:
     token = req.headers.get("x-auth-token") or req.q("token") or ""
     req.principal = resolve(token)
     need = meta.get("role")
+    # 考生身份默认哪儿都进不去：只有显式标了 role="examinee" 的接口才放行。
+    # 不这么写的话，所有"没标 role"的教学接口都会对考生敞开——
+    # 而考生的 principal 里是有 student_id 的，那就等于考试中能查自己的掌握度。
+    if req.principal["role"] == "examinee" and need != "examinee":
+        raise HTTPError(403, "考试令牌只能访问考试接口")
     if need and req.principal["role"] != need:
         raise HTTPError(403, f"该接口仅限 {need} 访问")
 

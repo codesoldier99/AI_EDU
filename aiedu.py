@@ -15,6 +15,7 @@
     python3 aiedu.py gap <student> <task>     打印任务知识缺口
     python3 aiedu.py practice <student> [task] 打印此刻该练什么及其理由
     python3 aiedu.py skills                   列出已装载的教学技能包
+    python3 aiedu.py exam <子命令> ...        在线考试运维（不带参数看用法）
     python3 aiedu.py reset                    清空数据库
 """
 from __future__ import annotations
@@ -76,11 +77,15 @@ def main() -> int:
         return run([PY, "scripts/practice.py", *rest])
     if cmd == "skills":
         return run([PY, "scripts/skills.py"])
+    if cmd == "exam":
+        return run([PY, "scripts/exam.py", *rest])
 
     if cmd == "test":
         return run([PY, "-m", "unittest", "discover", "-s", "tests", "-t", "tests", "-v"])
     if cmd == "test-state":
         return run([PY, "-m", "unittest", "test_bkt", "test_replay", "-v"], cwd=ROOT / "tests")
+    if cmd == "test-exam":
+        return run([PY, "-m", "unittest", "test_exam", "-v"], cwd=ROOT / "tests")
     if cmd == "test-study":
         return run([PY, "-m", "unittest", "test_tools", "test_quiz", "test_study",
                     "test_skills", "-v"], cwd=ROOT / "tests")
