@@ -98,12 +98,31 @@ def refresh_streak(student_id: int, today: str | None = None) -> dict:
     return s
 
 
+# 只有这三个字段是事件流的纯函数；current_days 还依赖"今天是几号"。
+REPLAYABLE_FIELDS = ("longest_days", "total_active_days", "last_active_date")
+
+
 def verify_streak(student_id: int) -> dict:
-    """重算校验：库中派生态是否与事件流一致。"""
+    """重算校验：库中派生态是否与事件流一致。
+
+    **current_days 不参与一致性判定**，这不是放水，是它压根不该参与：
+    连续天数是 (事件流, 今天) 的函数，昨天算出来的 1 到今天本就该变成 0。
+    把它算作"不一致"会让 `make replay` 对每个几天没活动的学生都报警——
+    而一个天天喊狼来了的完整性检查，等于没有检查。
+
+    库里那一行是缓存（任何一次 view() 都会 refresh），过期是正常的；
+    真正必须严丝合缝的是不随时间变化的那三个字段。
+    """
     stored, replay = get_streak(student_id), compute_streak(student_id)
-    match = all(stored.get(k) == replay.get(k) for k in ("current_days", "longest_days",
-                                                         "total_active_days"))
-    return {"match": match, "stored": stored, "replay": replay}
+    match = all(stored.get(k) == replay.get(k) for k in REPLAYABLE_FIELDS)
+    return {
+        "match": match,
+        "stored": stored,
+        "replay": replay,
+        # 缓存是否已过期：仅供观测，不算违规
+        "stale_current_days": stored.get("current_days") != replay.get("current_days"),
+        "note": "current_days 依赖当前日期，属缓存；一致性只校验不随时间变化的字段",
+    }
 
 
 # ---------------- achievements ----------------

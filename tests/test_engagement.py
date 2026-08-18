@@ -57,3 +57,33 @@ class TestEngagement(DBTestCase):
         self.assertIn("active_rate", c)
         self.assertNotIn("rank", c)
         self.assertNotIn("leaderboard", c)
+
+
+class TestStreakIntegrityCheck(DBTestCase):
+    """`make replay` 的完整性校验不能对着时间函数喊狼来了。"""
+
+    seed_course = True
+
+    def test_stale_current_days_is_not_a_violation(self):
+        from packages.engagement import service as eng
+
+        # 学生在很久以前活跃过一次：写库时连续天数是 1，今天早就该归零
+        tracker.record(self.student, "quiz", self.kp["A"], True, source="exam",
+                       occurred_at="2026-01-01 09:00:00")
+        eng.refresh_streak(self.student, today="2026-01-01")
+        self.assertEqual(eng.get_streak(self.student)["current_days"], 1)
+
+        v = eng.verify_streak(self.student)
+        self.assertTrue(v["match"], "连续天数过期不应被判为事件流不一致")
+        self.assertTrue(v["stale_current_days"])          # 但要如实报告缓存已过期
+        self.assertEqual(v["replay"]["current_days"], 0)  # 重算的确是 0
+
+    def test_real_corruption_is_still_caught(self):
+        """真正的篡改还是要抓出来——放宽的只是那一个时间相关字段。"""
+        from packages.engagement import service as eng
+
+        tracker.record(self.student, "quiz", self.kp["A"], True, source="exam")
+        eng.refresh_streak(self.student)
+        self.db.execute("UPDATE streak_state SET total_active_days=999 WHERE student_id=?",
+                        (self.student,))
+        self.assertFalse(eng.verify_streak(self.student)["match"])
