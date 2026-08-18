@@ -13,6 +13,8 @@
     python3 aiedu.py lint                     静态检查
     python3 aiedu.py replay [student_id]      从事件流重算状态，校验一致性
     python3 aiedu.py gap <student> <task>     打印任务知识缺口
+    python3 aiedu.py practice <student> [task] 打印此刻该练什么及其理由
+    python3 aiedu.py skills                   列出已装载的教学技能包
     python3 aiedu.py reset                    清空数据库
 """
 from __future__ import annotations
@@ -70,11 +72,18 @@ def main() -> int:
         return run([PY, "scripts/replay.py", *rest])
     if cmd == "gap":
         return run([PY, "scripts/gap.py", *rest])
+    if cmd == "practice":
+        return run([PY, "scripts/practice.py", *rest])
+    if cmd == "skills":
+        return run([PY, "scripts/skills.py"])
 
     if cmd == "test":
         return run([PY, "-m", "unittest", "discover", "-s", "tests", "-t", "tests", "-v"])
     if cmd == "test-state":
         return run([PY, "-m", "unittest", "test_bkt", "test_replay", "-v"], cwd=ROOT / "tests")
+    if cmd == "test-study":
+        return run([PY, "-m", "unittest", "test_tools", "test_quiz", "test_study",
+                    "test_skills", "-v"], cwd=ROOT / "tests")
     if cmd == "check":
         return run([PY, "-m", "unittest", "test_layering", "-v"], cwd=ROOT / "tests")
 

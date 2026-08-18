@@ -68,6 +68,18 @@ class OfflineClient:
             return self._credit(fields)
         if intent == "教师简报":
             return self._teacher_brief(fields)
+        if intent == "命题出卷":
+            return self._quiz(fields)
+        if intent == "练习安排":
+            return self._practice(fields)
+        if intent == "分步解题骨架":
+            return self._solve_skeleton(fields)
+        if intent == "分步解题":
+            return self._solve_turn(fields)
+        if intent == "限域调研":
+            return self._research(fields)
+        if intent == "图表解读":
+            return self._figure(fields)
         return "（离线表达器）已按结构化输入生成，如下：\n" + user.strip()[:600]
 
     def _ask(self, f: dict) -> str:
@@ -162,6 +174,93 @@ class OfflineClient:
             "所有映射均可追溯到具体知识点节点，规则校验已叠加。"
         )
 
+    # ---- 学习工作台（吸收自 DeepTutor 的能力面）----
+    # 这几个模板必须产出**能被确定性解析器接受**的格式。
+    # 它们的存在证明了一件事：出题、解题、调研的骨架是结构决定的，
+    # 换掉"嘴"之后流程依然跑得通，只是话没那么漂亮。
+    def _quiz(self, f: dict) -> str:
+        kp = f.get("知识点", "该知识点")
+        sents = _sentences(f.get("教材依据", ""))
+        n = max(1, min(_int(f.get("题量"), 2), len(sents) or 1))
+        qtype = f.get("题型", "单选题")
+        if not sents:
+            return "（离线表达器）未获得教材依据，未生成题目。"
+        out = []
+        for i in range(n):
+            s = sents[i % len(sents)]
+            if "数值" in qtype or "简答" in qtype or "代码" in qtype:
+                kws = "、".join(_keywords_of(s, kp)[:3])
+                out += [f"[题目] 结合教材对「{kp}」的表述，说明其要点与适用条件。（第 {i + 1} 题）",
+                        f"[答案] {s}",
+                        f"[关键词] {kws}",
+                        f"[解析] 教材依据写明：{s}。", ""]
+                continue
+            wrong = _negate(s)
+            pos = i % 3            # 正确项位置轮换，避免"答案永远是 A"
+            opts = [wrong, f"{kp}与该表述无关", "以上说法都成立"]
+            opts.insert(pos, s)
+            letters = "ABCD"
+            body = " | ".join(f"{letters[j]}. {o[:60]}" for j, o in enumerate(opts))
+            out += [f"[题目] 关于「{kp}」，以下哪一项与教材依据一致？（第 {i + 1} 题）",
+                    f"[选项] {body}",
+                    f"[答案] {letters[pos]}",
+                    f"[解析] 教材依据写明：{s}。其余选项与该表述不符。", ""]
+        return "\n".join(out)
+
+    def _practice(self, f: dict) -> str:
+        gap = f.get("题库缺口", "")
+        return (
+            f"这次给你 {f.get('题量', '0')} 道题，目标是：{f.get('练习目标', '（暂无）')}。\n"
+            f"为什么是现在：{f.get('选中理由', '按复检与缺口排序得出')}。\n"
+            "做错很正常，重要的是做完之后回到项目里用一次。"
+            + (f"\n（题库在这些点上还没题，已记下：{gap}）" if gap else "")
+        )
+
+    def _solve_skeleton(self, f: dict) -> str:
+        kp = (f.get("相关知识点", "") or "").split("、")[0]
+        sents = _sentences(f.get("教材依据", ""))
+        plan = [
+            ("把题目给的已知量与要求的目标量分别列出来", "text",
+             "已知量与目标量各列一行，不遗漏单位"),
+            (f"确定这一步该用哪个方法或公式，并说明为什么适用于「{kp or '本题'}」", "text",
+             sents[0] if sents else f"选用与{kp or '本题'}对应的方法并说明适用条件"),
+            ("把已知量代入，写出可计算的表达式", "text", "写出完整表达式，暂不求值"),
+            ("求值并检查量纲与数量级是否合理", "text", "给出数值结果并说明量纲是否自洽"),
+        ]
+        out = []
+        for ask, kind, concl in plan:
+            out += [f"[步骤] {ask}", f"[知识点] {kp}", f"[校验] {kind}",
+                    f"[结论] {concl}", ""]
+        return "\n".join(out)
+
+    def _solve_turn(self, f: dict) -> str:
+        fb = f.get("判定反馈", "")
+        head = f"第 {f.get('第几步', '1/1')} 步。"
+        body = f.get("当前步骤", "")
+        tail = {
+            "只复述当前这一步要做什么，绝不给出这一步的结果":
+                "先自己写出这一步的结果，写多少算多少。",
+            "可给一个关键提示，仍不得给出这一步的结果":
+                "提示：回到题目条件里找还没用上的那一个。",
+            "可提示这一步用到的方法名称与代入顺序，不得代替学生完成计算":
+                "框架给你：先定方法，再定代入顺序，最后才动手算。",
+            "可给出这一步的结论，并说明该知识点已标记需教师介入":
+                "这一步的结论已经交给你了，该知识点已标记需要教师介入。",
+        }.get(f.get("硬约束", ""), "")
+        return "\n".join(x for x in [head + body, (f"判定：{fb}" if fb else ""), tail] if x)
+
+    def _research(self, f: dict) -> str:
+        sents = _sentences(f.get("材料原文", ""))
+        if not sents:
+            return "该来源下未检索到可引用的材料。"
+        head = f"就「{f.get('调研主题', '本主题')}」，这一来源里可查到的表述如下。"
+        return head + "".join(f"{s}。" for s in sents[:4])
+
+    def _figure(self, f: dict) -> str:
+        items = [f"{k}：{v}" for k, v in f.items() if k not in ("意图", "图形")]
+        return (f"这张「{f.get('图形', '图')}」呈现的是——" + "；".join(items[:4]) + "。\n"
+                "图中的数字全部来自事件流折叠出的状态，可以逐条回溯到具体作答。")
+
     # ---- 向量 ----
     def embed(self, texts: list[str]) -> list[Vector]:
         return [
@@ -169,6 +268,42 @@ class OfflineClient:
                    version=CONFIG.embed_version)
             for t in texts
         ]
+
+
+def _sentences(text: str, min_len: int = 10) -> list[str]:
+    """把（已被压平成一行的）材料切成可引用的句子。"""
+    clean = re.sub(r"[#*`>|]", " ", text or "")
+    out = []
+    for seg in re.split(r"[。；;\n]", clean):
+        seg = seg.strip(" -\t")
+        if len(seg) >= min_len:
+            out.append(seg[:110])
+    return out
+
+
+def _negate(sentence: str) -> str:
+    """把一句陈述改成一个明显不同的说法，用作离线草案的干扰项。"""
+    for a, b in (("必须", "不必"), ("不能", "可以"), ("是", "不是"),
+                 ("需要", "无需"), ("增大", "减小"), ("提高", "降低")):
+        if a in sentence:
+            return sentence.replace(a, b, 1)
+    return "与上述表述相反的说法"
+
+
+def _keywords_of(sentence: str, kp: str) -> list[str]:
+    parts = [p for p in re.split(r"[，,、（）()\s]+", sentence) if len(p) >= 2]
+    out = [kp] if kp else []
+    for p in parts:
+        if p not in out:
+            out.append(p)
+    return out
+
+
+def _int(v, default: int) -> int:
+    try:
+        return int(float(str(v).strip()))
+    except (TypeError, ValueError):
+        return default
 
 
 def first_sentence(text: str, min_len: int = 12) -> str:

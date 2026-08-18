@@ -78,10 +78,50 @@ class TestLayering(unittest.TestCase):
             self.assertNotIn("UPDATE mastery_state", src, f"{f.name} 直接改了掌握度表")
             self.assertNotIn("INSERT INTO mastery_state", src, f"{f.name} 直接写了掌握度表")
 
+    def test_quiz_layer_never_touches_llm(self):
+        """题库、选题、判分全部是确定性的。
+
+        这条是铁律 3 在"考"这件事上的落地：出题的**表达**可以换模型，
+        "算不算对"不行。判分一旦掺进模型，成绩就不可复算了。
+        """
+        for f in pkg_files("quiz"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
+                self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
+
+    def test_tools_depend_on_nothing(self):
+        """确定性工具箱是叶子节点：谁都能用它，它谁都不用。"""
+        for f in pkg_files("tools"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages."), f"{f.name} 依赖了 {m}")
+
+    def test_skills_cannot_reach_state_or_llm(self):
+        """技能包只能影响"怎么说"，够不到"算不算掌握"。"""
+        for f in pkg_files("skills"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages.state"), f"{f.name} 引用了 state")
+                self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
+                self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
+
+    def test_practice_priorities_are_not_accuracy_based(self):
+        """铁律 5：练习排序不得以正确率 / 做题数 / 停留时长为依据。"""
+        src = (ROOT / "packages" / "quiz" / "selector.py").read_text(encoding="utf-8")
+        self.assertIn("PRIORITY_KINDS", src)
+        block = src.split("PRIORITY_KINDS = ")[1].split("\n")[0]
+        for bad in ("accuracy", "correct_rate", "score", "item_count", "dwell", "rank"):
+            self.assertNotIn(bad, block)
+
+    def test_grading_never_silently_guesses(self):
+        """判不了必须能表达成"判不了"：GradeResult 的 is_correct 必须允许 None。"""
+        src = (ROOT / "packages" / "quiz" / "grader.py").read_text(encoding="utf-8")
+        self.assertIn("is_correct: bool | None", src)
+        self.assertIn("pending_teacher", src)
+
     def test_no_direct_llm_sdk_import(self):
         """任何 LLM 调用必须经 packages/llm。"""
         sdks = {"openai", "anthropic", "dashscope", "zhipuai", "langchain", "litellm"}
-        for d in ("graph", "state", "engagement", "errors", "rag", "agents", "adapters"):
+        for d in ("graph", "state", "engagement", "errors", "rag", "agents", "adapters",
+                  "quiz", "tools", "skills"):
             for f in pkg_files(d):
                 for m in imports_of(f):
                     self.assertNotIn(m.split(".")[0], sdks, f"{f} 直接 import 了大模型 SDK")

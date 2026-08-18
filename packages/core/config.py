@@ -51,6 +51,13 @@ class TeachingConfig:
     retention_threshold: float = 0.6
     # 两次做对相隔多少天才算"已验证掌握"——挡住当堂反复练到做对
     verify_gap_days: float = 7.0
+    # ---- 判分与落地性（见 packages/quiz/grader.py、packages/tools/ground.py）----
+    # 主观题关键词覆盖率 >= 该值判"对"
+    keyword_pass_ratio: float = 0.7
+    # 覆盖率 <= 该值判"错"；两线之间一律不判，转教师人工（铁律 7）
+    keyword_fail_ratio: float = 0.2
+    # 生成段落与检索材料的 n-gram 重合率低于该值即标"低支撑"
+    groundedness_threshold: float = 0.35
     # BKT 课程级默认参数（冷启动）
     bkt_default: dict = field(
         default_factory=lambda: {

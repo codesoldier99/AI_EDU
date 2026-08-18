@@ -24,6 +24,9 @@
 | 14 | **两次做对相隔多少天才算"已验证掌握"？** | 7 天 | `teaching.verify_gap_days` | 验证率高低；定太松等于没验证，太紧会让人疲于复考 |
 | 15 | 遗忘曲线半衰期取多少天？ | 21 天 | `teaching.retention_halflife_days` | 复检队列的长度 |
 | 16 | 衰减到多少判定"该复习了"？ | 0.6 | `teaching.retention_threshold` | 同上 |
+| 17 | **主观题关键词覆盖率到多少判"对"？** | 0.7 | `teaching.keyword_pass_ratio` | 定高了大量作答积压到人工；定低了会把"沾边"记成"会了" |
+| 18 | **覆盖率低到多少才敢判"错"？** | 0.2 | `teaching.keyword_fail_ratio` | 两线之间一律转人工（铁律 7）。两线拉得越开，机器越谨慎、教师越累 |
+| 19 | 调研报告落地性低于多少标"低支撑"？ | 0.35 | `teaching.groundedness_threshold` | 定高了满屏告警没人看，定低了等于没检查 |
 
 ---
 

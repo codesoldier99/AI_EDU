@@ -16,6 +16,16 @@ config.yaml
 # 演示用的项目原始信号（由 scripts/demo.py 生成）
 data/seed/signals/
 
+# 学生名单等含个人信息的原始表格：几十人协作的仓库不放 PII
+# 需要共享时走学院内部渠道，或先脱敏再单独放到 data/ 下并说明口径
+*.xlsx
+*.xls
+*.csv
+
+# Claude Code 的本机设置与 worktree（worktree 是同一仓库的另一份检出）
+.claude/settings.local.json
+.claude/worktrees/
+
 .DS_Store
 .idea/
 .vscode/

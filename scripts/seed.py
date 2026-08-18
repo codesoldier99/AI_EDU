@@ -8,6 +8,7 @@
     python3 scripts/seed.py            # 全部
     python3 scripts/seed.py course     # 仅课程图谱
     python3 scripts/seed.py kb         # 仅知识库
+    python3 scripts/seed.py questions  # 仅起始题库
 """
 from __future__ import annotations
 
@@ -127,6 +128,37 @@ def seed_kb() -> dict:
     return out
 
 
+# ---------------------------------------------------------------- 起始题库
+def seed_questions(file: str = "questions.yaml") -> dict:
+    """导入教师录入的起始题库。
+
+    教师录入 = 已审（teacher_verified=1），可直接组卷；
+    模型出的题走 QuizAgent.draft，一律进待审队列。两条路径不混。
+    """
+    from packages.quiz import bank
+
+    path = SEED / file
+    if not path.exists():
+        return {"questions": 0, "unknown_kp_codes": []}
+    data = _yaml(path)
+    n, unknown = 0, []
+    for q in data.get("questions", []):
+        kp = repo.get_kp_by_code(q["kp"])
+        if not kp:
+            unknown.append(q["kp"])
+            continue
+        bank.add(
+            kp_id=kp.id, stem=q["stem"], answer=str(q["answer"]),
+            qtype=q.get("type", "choice"), options=q.get("options") or [],
+            rationale=(q.get("rationale") or "").strip(),
+            difficulty=float(q.get("difficulty", 0.5)),
+            origin="teacher", keywords=q.get("keywords") or [],
+            tolerance=float(q.get("tolerance", 0.0) or 0.0),
+        )
+        n += 1
+    return {"questions": n, "unknown_kp_codes": unknown}
+
+
 # ---------------------------------------------------------------- 教师
 def seed_teachers() -> int:
     db = get_db()
@@ -167,6 +199,11 @@ def main() -> None:
     if what in ("all", "kb"):
         r = seed_kb()
         print(f"→ 知识库：{sum(r.values())} 个文本块，来自 {len(r)} 个文件")
+    if what in ("all", "questions"):
+        r = seed_questions()
+        print(f"→ 起始题库：{r['questions']} 道教师录入题（已审，可直接组卷）")
+        if r["unknown_kp_codes"]:
+            print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
     if what in ("all", "teachers"):
         print(f"→ 教师：{seed_teachers()} 人")
     print("完成。")

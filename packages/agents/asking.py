@@ -20,6 +20,7 @@ from packages.core.timeutil import now_str
 from packages.graph import algo as graph_algo
 from packages.graph import repo as graph_repo
 from packages.rag import retriever
+from packages import skills
 from packages.state import repo as state_repo
 from packages.state import tracker
 from packages.state import verification
@@ -174,6 +175,9 @@ class AskingAgent(Agent):
             f"{kp.name if kp else ''} {kp.description if kp else ''} {student_text or ''}",
             intent="ask", kp_id=kp_id, top_k=2,
         )
+        # 教学技能包：教师写一个 Markdown 就能改变"这一类问法怎么说"。
+        # 注意方向——style 是 AskingStrategy 确定性选出来的，技能包只影响表达。
+        pack = skills.pick_asking_style(plan.style, kp.kp_type if kp else "")
         fields = {
             "意图": "苏格拉底追问",
             "目标知识点": plan.target_kp_name,
@@ -184,6 +188,8 @@ class AskingAgent(Agent):
             "学生上一句": (student_text or "")[:300],
             "降级层级": ESCALATION_LABELS[level],
         }
+        if pack:
+            fields["教学法要点"] = pack.guidance(400)
         if level == 0:
             fields["硬约束"] = "只能提问，不能给出最终答案"
         elif level == 1:
@@ -212,7 +218,10 @@ class AskingAgent(Agent):
             narrative=narrative,
             plan={**plan.to_dict(), "session_id": session_id,
                   "escalation_label": ESCALATION_LABELS[level],
-                  "gives_answer": level >= 3},
+                  "gives_answer": level >= 3,
+                  # 溯源：这一轮用了哪个教学技能包，教师能查到具体文件
+                  "skill_pack": pack.name if pack else "",
+                  "skill_pack_sha": pack.sha256 if pack else ""},
             citations=[c.to_dict() for c in ctx.citations],
             confidence=0.0 if not ctx.hits else min(0.9, ctx.hits[0]["score"]),
             evidence_count=len(ctx.hits),

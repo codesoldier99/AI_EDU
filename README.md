@@ -236,6 +236,65 @@ make gap STUDENT=1 TASK=T-AGV-3
 
 ---
 
+## 学习工作台：切目标，不切引擎
+
+一个标签页，四个能力，共用同一份学生状态。形取自 DeepTutor（港大 HKUDS，
+Apache-2.0，约 3.6 万星）的 agent-native 设计；判定权一分没让——
+逐条取舍见 [`docs/deeptutor-研判.md`](docs/deeptutor-研判.md)。
+
+| 能力 | 它怎么做 | 我们怎么做 |
+|---|---|---|
+| **出题测练** | 模型出题、模型批改 | 练什么由复检 / 待验证 / 任务缺口 / 根因四类**算出来**；模型只写题面且必须挂教材依据；模型出的题一律进**待审队列**，教师确认才发给学生；判分走确定性规则 |
+| **分步解题** | 把完整推理讲清楚 | **一次只交出一步**。学生先答，判定走确定性工具（数值走求值器，文字走关键词覆盖），答不上来才逐级降级，降到 L3 才给该步结论并标记教师介入 |
+| **限域调研** | 接六家网络搜索 | 只查院内三个知识库；生成后**再量一次落地性**（n-gram 重合率），低支撑段落标出来不删；产出计入交付物，**不计入掌握度** |
+| **图示** | 模型写 Chart.js / Mermaid | SVG 由确定性纯函数生成，模型只写图下面那句解读。零图表库、零 CDN |
+
+由此确立了第 7 条架构铁律：**判不了 ≠ 判错**。
+
+关键词覆盖率落在 0.2–0.7 之间、数值作答里出现多个数字、选项解析不出来——
+这些一律不判，写行为事件但不更新掌握度，进教师人工队列。
+理由很实际：BKT 的证据流是这套系统最贵的东西，掺进去一条"其实没判出来但记成错了"
+的证据，后面所有诊断都会跟着歪，而且**歪得看不出来**。
+
+同理，证据权重随判定的确定性走：教师判分 1.0 > 选择/数值规则 1.0 >
+数值校验 0.7 > 文本规则 0.5。
+
+```bash
+make practice STUDENT=3     # 打印"此刻该练什么"及每一条的理由
+```
+
+```
+知识点                    来源      掌握度   挡路度  优先级  理由
+机器学习的定义与三要素      根因点     0.000   40.0    6.80  「机器学习不适用的场景判别」的上游薄弱点，先补这里更省力
+机器学习项目的完整流程      任务缺口   0.514   13.5    3.35  任务「需求分析与技术选型」需要它，掌握度 0.51 < 0.75
+题库缺口（该练但没题，教师优先在这些点上出题）：
+  ✗ 机器学习的定义与三要素（根因点）
+```
+
+最后那两行是这套设计的副产品，也是最有用的一个输出：
+它直接告诉教师**下一批题该出在哪**，比任何"命中率"都实在。
+
+### 教学技能包：教师写 Markdown 就能扩展
+
+`skills/` 下放一个带 frontmatter 的 `.md`，存盘即生效，不改代码、不重启：
+
+```markdown
+---
+name: counterexample-first
+kind: asking_style
+style: 反例质疑
+---
+不要问"你理解这个概念了吗"，问"什么情况下它不成立"。
+给出的反例要具体到能算……
+```
+
+格式沿用 DeepTutor 的开放 Agent-Skills 约定，但用途收窄了一格：
+**技能包只能影响"怎么问、怎么出题"，够不到"算不算掌握"**。
+也不做远程 hub 安装——技能包进 git，教师可读、可评审、可回滚。
+`make skills` 查看已装载的包及其文件指纹。
+
+---
+
 ## 关于"不做什么"
 
 - ❌ 不让大模型判断"学生是否掌握某知识点"——必须由 BKT 依据事件产生
@@ -286,14 +345,18 @@ packages/graph      L1 知识图谱：知识点、依赖边、能力模块、任
 packages/state      L2 学生状态：BKT、掌握度、事件流、重算校验
 packages/engagement 参与度派生态（只读事件流）
 packages/errors     错误模式库（最有价值的资产）
+packages/quiz       题库 + 确定性选题 + 确定性判分（不依赖大模型）
+packages/tools      确定性工具箱：安全算术求值、落地性检查（零依赖叶子）
+packages/skills     教学技能包装载（SKILL.md）
 packages/rag        三个知识库 + 图谱结构化过滤的混合召回
 packages/llm        大模型统一封装（可替换层）
 packages/agents     L3 智能体 + 知识宇宙视图投影
 packages/adapters   项目数据适配器（每项目一个）
 migrations          数据库迁移与约束
 data/seed           课程图谱 / 项目任务 / 知识库 / 规则映射（教师可直接维护）
-scripts             seed / demo / replay / gap / lint / mock_llm / make_deck
-tests               99 个用例，含架构铁律、换模型不变性、前端布局物理
+skills              教学技能包（教师可写，进 git，不从网上装）
+scripts             seed / demo / replay / gap / practice / skills / lint / mock_llm / make_deck
+tests               177 个用例，含架构铁律、换模型不变性、判分边界、前端布局物理
 docs                架构说明、标注规范、API、演示脚本
 ```
 
@@ -307,6 +370,9 @@ make test-state                     # 仅测状态层（改 BKT 后必跑）
 make check                          # 架构铁律自检
 make replay STUDENT=1               # 从事件流重算，校验一致性
 make gap STUDENT=1 TASK=T-AGV-3     # 打印任务知识缺口
+make practice STUDENT=1             # 打印此刻该练什么及其理由
+make skills                         # 列出已装载的教学技能包
+make test-study                     # 仅测学习工作台
 make lint                           # 静态检查
 make reset                          # 清空数据库
 
@@ -322,6 +388,7 @@ python3 aiedu.py <同名子命令>        # 无 make 环境的等价入口
 - [`docs/slides/`](docs/slides/) —— 汇报 PPT（12 页，pptx + pdf），由 `scripts/make_deck.py` 生成
 - [`docs/decisions.md`](docs/decisions.md) —— 待教师团队拍板的参数
 - [`docs/learnvector-研判.md`](docs/learnvector-研判.md) —— LearnVector 研判：吸收什么、不跟什么
+- [`docs/deeptutor-研判.md`](docs/deeptutor-研判.md) —— DeepTutor 研判：抄能力，不抄判断权
 - [`CLAUDE.md`](CLAUDE.md) —— 架构铁律与开发规范（每次开工必读）
 - [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) —— 分阶段开发计划与验收标准
 

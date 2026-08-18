@@ -13,6 +13,29 @@ if str(ROOT) not in sys.path:
 from packages.core.db import Database, set_db  # noqa: E402
 
 
+class OfflineLLMMixin:
+    """把"嘴"钉在离线表达器上。
+
+    两个理由：结构性断言（解析器收不收、格式对不对）必须可复现；
+    以及跑一次测试不该真的去打一遍模型接口。
+    真实底座的可替换性由 tests/test_llm_switch.py 单独证明。
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        from packages.llm import gateway
+        from packages.llm.offline import OfflineClient
+
+        self._prev_llm = gateway.get_client()
+        gateway.set_client(OfflineClient())
+
+    def tearDown(self) -> None:
+        from packages.llm import gateway
+
+        gateway.set_client(self._prev_llm)
+        super().tearDown()
+
+
 class DBTestCase(unittest.TestCase):
     seed_course = False
 

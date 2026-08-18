@@ -41,12 +41,20 @@ class Agent:
         """
         return " ".join(str(v).split())
 
-    def express(self, fields: dict, max_tokens: int = 600) -> tuple[str, bool]:
-        """把结构化字段交给模型表达。字段格式固定为 `- 键：值`，离线表达器也能解析。"""
+    def express(self, fields: dict, max_tokens: int = 600,
+                system: str = "") -> tuple[str, bool]:
+        """把结构化字段交给模型表达。字段格式固定为 `- 键：值`，离线表达器也能解析。
+
+        `system` 用于同一个智能体里**产出形态不同**的调用。
+        例：QuizAgent 的默认提示词要求"严格按行格式输出题目"，
+        但它给学生写的那句练习说明不是题目——不换提示词，真实模型会照着出题格式回一道题。
+        （这个坑是在联调里踩出来的，离线表达器按"意图"字段分发，看不出来。）
+        """
         body = "\n".join(
             f"- {k}：{self._flatten(v)}" for k, v in fields.items() if v not in (None, "")
         )
-        r = gateway.complete(self.name, self.system_prompt, body, max_tokens=max_tokens)
+        r = gateway.complete(self.name, system or self.system_prompt, body,
+                             max_tokens=max_tokens)
         return r.text, r.degraded
 
     @staticmethod

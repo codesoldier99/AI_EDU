@@ -19,6 +19,7 @@ from .bkt import BKTParams, update_with_weight
 # 不同来源的证据权重：越间接的证据权重越低（宁可慢，不可错）
 SOURCE_WEIGHT = {
     "exam": 1.0,
+    "teacher": 1.0,      # 教师人工判分：判定最确定，权重最高
     "quiz": 1.0,
     "homework": 0.9,
     "lab": 0.9,

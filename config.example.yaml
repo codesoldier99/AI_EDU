@@ -30,6 +30,16 @@ teaching:
   comeback_gap_days: 3           # 中断多少天后重新活跃算 comeback
   min_evidence_for_report: 3     # 证据少于此数，报告标注"数据不足"
 
+  # ---- 掌握的质量 ----
+  verify_gap_days: 7.0           # 两次做对相隔多少天才算"已验证掌握"
+  retention_halflife_days: 21.0  # 遗忘曲线半衰期（只算不写回库）
+  retention_threshold: 0.6       # 衰减到多少判定"该复习了"
+
+  # ---- 判分与落地性（铁律 7：判不了 ≠ 判错）----
+  keyword_pass_ratio: 0.7        # 主观题关键词覆盖率 >= 此值判"对"
+  keyword_fail_ratio: 0.2        # <= 此值判"错"；两线之间一律转教师人工
+  groundedness_threshold: 0.35   # 调研段落与材料的重合率低于此值标"低支撑"
+
   bkt_default:                   # BKT 课程级默认参数（冷启动）
     p_init: 0.15
     p_transit: 0.20

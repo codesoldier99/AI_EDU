@@ -467,6 +467,7 @@ streak        连续活跃天数
 | 2 追问审查 | ✅ | `packages/agents/{asking,review}.py` | 未降级不给答案；降级写事件；只有 reliable 映射经教师采纳才回写 L2 |
 | 3 拉取+项目 | ✅ | `packages/agents/task.py`、`packages/adapters/`、`apps/web/` | `make gap` 输出合理；新增适配器核心代码 md5 不变；学生端与副驾驶可用 |
 | 4 画像验证 | 部分 | `packages/agents/profile.py` | 画像已上线；**对照实验数据采集尚未开始** |
+| 3.6 学习工作台 | ✅ | `packages/{quiz,tools,skills}`、`packages/agents/{quiz,solve,research,visualize}.py`、`apps/web/study.js` | `make test-study` 64 用例；`make practice` 输出可解释的选点理由；离线与真实底座两条路都跑通出题→审核→组卷→批改 |
 
 ### 与原计划的差异及理由
 
@@ -478,9 +479,15 @@ streak        连续活跃天数
 3. **新增 `make check`**：把架构铁律做成可执行检查，而不是只写在文档里。
 4. **重算的规范顺序定为事件记录顺序（自增 id）而非 occurred_at**，
    理由见 `docs/architecture.md` §3——否则重算不可判定。
+5. **新增 Phase 3.6「学习工作台」**：吸收 DeepTutor（HKUDS，Apache-2.0，约 3.6 万星）
+   的能力面。原计划里"自动出题"只是 Phase 2 的一个附属功能，实际做下来发现
+   它需要一整层（题库是与错误模式库同级的可积累资产），因此单独立项。
+   逐条取舍与理由见 `docs/deeptutor-研判.md`；由此确立的第 7 条铁律（判不了 ≠ 判错）
+   已写进 `CLAUDE.md`。
 
 ### 下一步
 
+- 题库覆盖：`make practice` 已经在报"该练但没题"的知识点，教师优先在这些点上出题。
 - Phase 4 的对照实验数据采集设计（实验班 vs 同专业普通班，延迟后测为主指标，研究方案预注册）。
 - `docs/decisions.md` 中 13 项参数的教师团队拍板。
 - 首批知识点标注由 183 个细化到 300–500 个。

@@ -93,6 +93,49 @@
 | GET | `/api/brief/teacher?klass=` | 教师版简报：异常与需介入事项 |
 | POST | `/api/credit-map` | `{description, tech_stack}` → 学分映射建议（叠加规则校验，须委员会审核） |
 
+## 学习工作台（出题测练 / 分步解题 / 限域调研 / 图示）
+
+设计说明与取舍理由见 `docs/deeptutor-研判.md`。
+
+### 题库（教师侧）
+
+| 方法 | 路径 | 角色 | 说明 |
+|---|---|---|---|
+| POST | `/api/quiz/draft` | 教师 | `{kp_id, n, qtype}` → 模型起草题目。**必须挂教材依据**，无依据拒绝出题；产出一律 `teacher_verified=0` |
+| GET | `/api/quiz/review-queue` | 教师 | 待审草案 + 题库统计 |
+| POST | `/api/quiz/review/{qid}` | 教师 | `{action: accept\|reject\|edit, patch?}`。reject 只标 `retired`，不删除 |
+| GET | `/api/quiz/bank?kp_id=` | 教师 | 某知识点下的题；不带 `kp_id` 只返回统计 |
+
+### 练习（学生侧）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/practice-plan` | 只看"该练什么"与理由，不出卷。排序依据仅四类：`retention` / `verify` / `gap` / `root_cause`；附 `missing_bank`（该练但题库没题） |
+| POST | `/api/quiz/assemble` | `{task_id?, per_kp?, limit?}` → 组卷。返回的题目**不含 answer 与 rationale** |
+| POST | `/api/quiz/submit` | `{paper_id, answers:{qid: 作答}}` → 批改。判不了的题 `is_correct=null`、不给解析、转人工 |
+| GET | `/api/quiz/history/{id}` | 作答记录本身；**不返回正确率** |
+| GET | `/api/quiz/pending` | 教师：确定性判分放弃的作答队列 |
+| POST | `/api/quiz/grade/{event_id}` | 教师：`{is_correct, note}` → **追加一条新事件**，不修改旧事件 |
+
+### 分步解题
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/solve/start` | `{problem, kp_id?}` → 拆步骤，只返回第一步的"要做什么" |
+| POST | `/api/solve/answer` | `{session_id, text, stuck?}` → 判定这一步。答对才前进；连续答不上来逐级降级 |
+| GET | `/api/solve/{session_id}` | 会话视图。**未通过且未降级的步骤，`expected` 恒为空串** |
+| GET | `/api/solve/sessions/{id}` | 最近的解题会话 |
+
+### 限域调研与图示
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/research` | `{topic, project?}` → 只查院内三库的结构化报告。每节带 `groundedness`，低于阈值标 `grounded=false` |
+| GET | `/api/notes/{id}` | 调研记录列表 |
+| GET | `/api/note/{note_id}` | 报告全文（Markdown） |
+| GET | `/api/figure?kind=&kp_id=` | `kind ∈ {mastery_bars, retention_curve, ability_radar, root_cause_chain}`。返回服务端生成的 SVG + 模型写的解读；根因链另附 Mermaid 源码 |
+| GET | `/api/skills` | 公开：已装载的教学技能包及其文件指纹 |
+
 ## 作答回流
 
 | 方法 | 路径 | 说明 |

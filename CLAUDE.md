@@ -16,7 +16,7 @@
 
 ## 2. 架构铁律（违反即返工，优先级高于一切）
 
-> 这五条不是靠自觉，已由 `tests/test_layering.py`（AST 静态检查）与
+> 这七条不是靠自觉，已由 `tests/test_layering.py`（AST 静态检查）与
 > `migrations/002_append_only.sql`（数据库触发器）双重固化。`make check` 可随时验证。
 
 1. **L3 不得直接写 L2 状态。** 生成层只能读取学生状态、写入行为事件；所有掌握度变更必须经 `packages/state` 的追踪算法产生。
@@ -36,6 +36,13 @@
    而是陪到他真的会、并且能证明。
    实现见 `packages/state/verification.py`；衰减**只算不写**——掌握度必须始终等于
    事件流折叠的结果，否则 `make replay` 失去意义（与铁律 1 同源）。
+
+7. **判不了 ≠ 判错。** 确定性判分拿不准时（关键词覆盖落在判定带间、作答里出现多个数字、
+   选项解析不出来），必须返回"未判定"并进教师人工队列，**禁止猜一个结果写进事件流**。
+   同理，证据权重随判定的确定性走：教师判分 1.0 > 规则判分 1.0 > 数值校验 0.7 > 文本规则 0.5。
+   理由见 `docs/deeptutor-研判.md` §4：BKT 的证据流是本系统最贵的东西，
+   掺进去一条"其实没判出来"的证据，后面所有诊断都会歪，而且歪得看不出来。
+   实现见 `packages/quiz/grader.py`。
 
 ---
 
@@ -144,16 +151,26 @@
   /adapters           项目数据适配器（每项目一个）
   /llm                大模型统一封装（可替换层）
   /errors             错误模式库（核心资产）
+  /quiz               题库 + 确定性选题 + 确定性判分（可积累资产，**不依赖大模型**）
+  /tools              确定性工具箱：安全算术求值、落地性检查（铁律 3 的实体，零依赖）
+  /skills             教学技能包装载（SKILL.md，教师写 Markdown 即扩展）
   /state/verification.py   掌握的质量：跨时间验证、遗忘复检、提示依赖、学法有效率
   /agents/universe.py      知识宇宙的视图投影（只读 L1+L2，什么都不写）
+  /agents/quiz.py          出题（草案进待审队列）/ 组卷 / 批改
+  /agents/solve.py         分步解题：一次只交出一步
+  /agents/research.py      限域调研：只查院内三库，产出计入交付物不计入掌握度
+  /agents/visualize.py     图示：SVG 由确定性代码生成，模型只写解读
+/skills               教学技能包（教师可写，进 git，不从网上装）
 /migrations
 /scripts
 /docs
 /tests
 ```
 
-**依赖方向严格单向：** `apps → agents → {state, engagement, rag, llm} → graph`
-禁止反向依赖；禁止 `graph` 引用 `llm`；**禁止 `engagement` 写 `state`**。
+**依赖方向严格单向：** `apps → agents → {quiz, state, engagement, rag, llm, skills} → graph`，
+`tools` 是叶子（谁都能用它，它谁都不用）。
+禁止反向依赖；禁止 `graph` 引用 `llm`；**禁止 `engagement` 写 `state`**；
+**禁止 `quiz` / `skills` / `tools` 引用 `llm`**——判分与技能包一旦掺进模型，成绩就不可复算了。
 
 ---
 
@@ -181,6 +198,14 @@ AbilityProfile(student_id, module_id, level, updated_at)
 StreakState(student_id, current_days, longest_days, last_active_date)
 Achievement(id, student_id, kind, ref_id, earned_at)
 # kind ∈ {breakthrough, milestone, comeback, first_run}
+
+# packages/quiz — 可积累资产（与错误模式库同级）
+Question(id, kp_id, qtype, stem, options, answer, keywords, rationale,
+         difficulty, origin, grader, citations, teacher_verified, retired)
+# origin=llm 的题一律 teacher_verified=0；只能标 retired，禁止 DELETE（触发器固化）
+QuizPaper(id, student_id, purpose, question_ids, reasons)   # 只记发了什么、为什么发
+# ★ 作答结果不建表：作答即事件，写 LearningEvent(event_type='quiz')，
+#   source_ref='paper:<pid>#question:<qid>'，判分细节进 payload
 
 # packages/errors — 最有价值的资产
 ErrorPattern(id, kp_id, description, root_cause_kp_id, occurrence_count,
@@ -250,6 +275,9 @@ make lint                        # ruff；无 ruff 时退化为内置自检
 node tests/web_core.test.mjs     # 知识宇宙的布局物理 / 色阶 / 降噪（已并入 make test）
 make replay STUDENT=<id>         # 从事件流重算状态，校验一致性
 make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑）
+make practice STUDENT=<id>       # 打印此刻该练什么及其理由（调试选点逻辑）
+make skills                      # 列出已装载的教学技能包
+make test-study                  # 仅测学习工作台（题库/判分/解题/调研/图示）
 ```
 
 ---
@@ -273,6 +301,11 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 | 复检 | retention review | 掌握度按遗忘曲线掉到阈值以下，需重新确认 |
 | 提示依赖度 | assistance dependency | 有多少"做对"发生在提示之后（诊断用，非考核用）|
 | 知识宇宙 | knowledge universe | 3D 知识图谱视图 |
+| 学习工作台 | study workbench | 出题测练 / 分步解题 / 限域调研 / 图示，共用同一学生上下文 |
+| 待审草案 | pending draft | 模型出的题，教师确认前不得发给学生 |
+| 未判定 | pending | 确定性判分拿不准，转人工，不写掌握度证据 |
+| 落地性 | groundedness | 生成文字与检索材料的 n-gram 重合率，低于阈值标"低支撑" |
+| 教学技能包 | skill pack | 教师用 Markdown 写的"怎么问、怎么出题"，不改代码即生效 |
 | 免听不免考 | — | 理论课可自学但必须参加统考 |
 | 30/70 考核 | — | 专业课 30% 笔试 + 70% 实践 |
 
@@ -295,6 +328,13 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 - ❌ 把"提示依赖度""无提示做对率"做成激励、排名或考核指标
 - ❌ 把一次做对当成掌握并从此不再回访
 - ❌ 前端引用 CDN 上的 JS/CSS/字体
+- ❌ 把模型生成的题目直接发给学生（必须先过教师审核）
+- ❌ 组卷时把答案或解析一起下发给学生（批改后才给）
+- ❌ 确定性判分拿不准时猜一个结果写进事件流（必须转人工）
+- ❌ 分步解题在未降级前交出任何一步的结论
+- ❌ 让调研 / 图示这类产出物影响掌握度
+- ❌ 让教学技能包影响"算不算掌握"（它只能影响怎么说）
+- ❌ 展示"本次正确率"这类当场指标
 
 ---
 
@@ -318,5 +358,9 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 **Phase 3.5（已完成）：** 掌握的质量（跨时间验证 / 遗忘复检 / 提示依赖 / 学法适配）、
 知识宇宙 3D 图谱（three.js，含根因链点亮）。
 
+**Phase 3.6（已完成）：** 吸收 DeepTutor 的能力面——题库与确定性判分、针对性练习选点、
+分步解题（一次一步 + 降级留痕）、限域调研（三库内检索 + 落地性检查）、
+确定性 SVG 图示、教学技能包（SKILL.md）。取舍理由见 `docs/deeptutor-研判.md`。
+
 **待推进：** Phase 4 效果验证的数据采集（对照组、延迟后测），
-以及 `docs/decisions.md` 里 16 项参数的教师拍板。
+以及 `docs/decisions.md` 里参数的教师拍板。

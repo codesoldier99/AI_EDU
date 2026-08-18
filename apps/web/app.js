@@ -768,11 +768,13 @@ function tableOf(head, rows) {
 const TABS = [
   { id: 'class', name: '班级诊断', role: 'teacher', view: viewClassDiagnosis },
   { id: 'errors', name: '错误模式库', role: 'teacher', view: viewErrors },
+  { id: 'bank', name: '题库与技能包', role: 'teacher', view: (r) => STUDY.viewBank(r) },
   { id: 'review', name: '代码审查', role: 'any', view: viewReview, student: true },
   { id: 'ops', name: '教师简报 / 学分映射', role: 'teacher', view: viewTeacherOps },
   { id: 'me', name: '我的状态', role: 'any', view: viewMe, student: true },
   { id: 'pull', name: '拉取式任务', role: 'any', view: viewPull, student: true },
   { id: 'ask', name: '引导追问', role: 'any', view: viewAsk, student: true },
+  { id: 'study', name: '学习工作台', role: 'any', view: (r) => STUDY.view(r), student: true },
   { id: 'copilot', name: '学习副驾驶', role: 'any', view: viewCopilot, student: true },
   { id: 'universe', name: '知识宇宙 3D', role: 'any', view: viewUniverse, student: true },
   { id: 'graph', name: '知识图谱', role: 'any', view: viewGraph },

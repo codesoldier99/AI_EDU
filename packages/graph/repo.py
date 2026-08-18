@@ -304,6 +304,15 @@ def add_task_dependency(from_code: str, to_code: str) -> None:
         )
 
 
+def assigned_task_ids(student_id: int, exclude_done: bool = True) -> list[int]:
+    """该学生手上还没做完的任务。拉取式的入口：不知道他在做什么，就不该推任何东西。"""
+    sql = "SELECT task_id FROM task_assignment WHERE student_id=?"
+    if exclude_done:
+        sql += " AND status<>'done'"
+    return [r["task_id"] for r in get_db().query(sql + " ORDER BY updated_at DESC",
+                                                 (student_id,))]
+
+
 def task_successors(task_id: int) -> list[int]:
     return [
         r["to_task_id"]
