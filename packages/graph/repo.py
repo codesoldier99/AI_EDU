@@ -327,7 +327,33 @@ def task_successors(task_id: int) -> list[int]:
 
 
 # ---------------- 统计 ----------------
-def stats() -> GraphStats:
+# 图谱统计的进程内缓存。图谱是慢变量（导入种子时才变），而 /api/health 是监控
+# 打得最勤的接口——实测未缓存时它只有 25 次/秒、p50 超过 1 秒，
+# 一个把系统自己压垮的健康检查是没有意义的。
+_STATS_TTL = 60.0
+# 按库路径分桶。测试里每个用例一个临时库，不分桶会串库——
+# 这类"缓存跨实例泄漏"制造的是随机失败的测试，比慢一百倍难查得多。
+_stats_cache: dict[str, tuple[float, "GraphStats"]] = {}
+
+
+def invalidate_stats_cache() -> None:
+    """种子导入等会改变图谱结构的操作之后调用。"""
+    _stats_cache.clear()
+
+
+def stats(max_age: float = _STATS_TTL) -> GraphStats:
+    import time as _time
+
+    key = str(get_db().path)
+    hit = _stats_cache.get(key)
+    if hit and (_time.monotonic() - hit[0]) < max_age:
+        return hit[1]
+    val = _compute_stats()
+    _stats_cache[key] = (_time.monotonic(), val)
+    return val
+
+
+def _compute_stats() -> GraphStats:
     db = get_db()
     from .algo import detect_cycles
 

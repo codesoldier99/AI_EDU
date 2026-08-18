@@ -191,6 +191,15 @@ class App:
                     ctype += "; charset=utf-8"
                 self._send(200, f.read_bytes(), ctype)
 
-        httpd = ThreadingHTTPServer((host, port), Handler)
+        class Server(ThreadingHTTPServer):
+            # 默认监听队列只有 5：一场考试几百人同时点"开考"，第 6 个之后的连接
+            # 会被内核直接拒掉（实测报 Connection reset by peer）。
+            # 这个数字管的是"还没被 accept 的连接能排多长的队"，与并发处理能力无关，
+            # 调大几乎零成本，不调则突发流量必丢。
+            request_queue_size = 256
+            allow_reuse_address = True
+            daemon_threads = True
+
+        httpd = Server((host, port), Handler)
         print(f"  → http://{host}:{port}/   (Ctrl-C 停止)")
         httpd.serve_forever()

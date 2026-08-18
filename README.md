@@ -434,6 +434,7 @@ python3 aiedu.py <同名子命令>        # 无 make 环境的等价入口
 - [`docs/learnvector-研判.md`](docs/learnvector-研判.md) —— LearnVector 研判：吸收什么、不跟什么
 - [`docs/deeptutor-研判.md`](docs/deeptutor-研判.md) —— DeepTutor 研判：抄能力，不抄判断权
 - [`docs/measurement-plan.md`](docs/measurement-plan.md) —— **两年成效量化测评方案**（断点回归、锚题、预注册）
+- [`docs/capacity-plan.md`](docs/capacity-plan.md) —— **服务器资源分阶段配置方案**（含实测压测数据，供预算申请）
 - [`CLAUDE.md`](CLAUDE.md) —— 架构铁律与开发规范（每次开工必读）
 - [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) —— 分阶段开发计划与验收标准
 

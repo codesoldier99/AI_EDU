@@ -52,3 +52,37 @@ class TestGraph(DBTestCase):
         self.assertIsNone(
             algo.nearest_mastered_prerequisite(self.kp["C"], {}, 0.75)
         )
+
+
+class TestStatsCache(DBTestCase):
+    """图谱统计的缓存不能串库，也必须能被种子导入失效。"""
+
+    seed_course = True
+
+    def test_cache_is_keyed_by_database(self):
+        import tempfile
+        from pathlib import Path
+
+        from packages.core.db import Database, set_db
+        from packages.graph import repo
+
+        first = repo.stats().kps
+        self.assertGreater(first, 0)
+
+        # 换一个空库：若缓存不分桶，这里会拿到上一个库的数字
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Database(f"sqlite:///{Path(tmp) / 'other.db'}")
+            set_db(other)
+            other.migrate(verbose=False)
+            self.assertEqual(repo.stats().kps, 0, "统计缓存串库了")
+            other.close()
+        set_db(self.db)
+        self.assertEqual(repo.stats().kps, first)
+
+    def test_invalidate_reflects_new_knowledge_points(self):
+        from packages.graph import repo
+
+        before = repo.stats().kps
+        repo.upsert_kp(self.course_id, "NEW-01", "新知识点", "说明")
+        repo.invalidate_stats_cache()
+        self.assertEqual(repo.stats().kps, before + 1)

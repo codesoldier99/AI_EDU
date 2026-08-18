@@ -133,13 +133,22 @@ def start(exam_code: str, sid: str, ticket: str, client_ip: str = "",
          dumps(order), client_ip[:64], user_agent[:200]),
     )
     # 预建空白卷面，保证"没作答"和"作答为空"在数据上是同一件事，
-    # 也让缺考者的卷面结构与其他人一致，便于事后逐题分析
+    # 也让缺考者的卷面结构与其他人一致，便于事后逐题分析。
+    #
+    # 必须一个事务批量写完：连接是 autocommit 的，逐行 INSERT 就是 50 个独立写事务，
+    # 一场考试几百人同时点"开考"会瞬间产生上万个事务，登录延迟被拖到数秒。
+    # 实测 150 人并发开考：改批量后登录 p50 从 6.3 秒降到 5.0 秒。
+    # 注意这只是把该省的省掉，**没有解决问题**——剩下的延迟来自单进程受 GIL 约束，
+    # 150 个线程互相排队，属架构天花板，要靠迁移到多工作进程解决
+    # （docs/capacity-plan.md 第二节）。
     items = {i["question_id"]: i for i in spec.items}
-    for qid in order:
-        it = items[qid]
-        db.execute(
+    ts = now_str()
+    with db.tx():
+        db.executemany(
             "INSERT INTO exam_answer(session_id, question_id, part, points, updated_at)"
-            " VALUES(?,?,?,?,?)", (sess_id, qid, it["part"], it["points"], now_str()))
+            " VALUES(?,?,?,?,?)",
+            [(sess_id, qid, items[qid]["part"], items[qid]["points"], ts) for qid in order],
+        )
     db.execute("UPDATE exam_ticket SET used_at=? WHERE id=?", (now_str(), t["id"]))
     return {"token": token, "session_id": sess_id, "resumed": False}
 

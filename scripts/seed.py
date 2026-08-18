@@ -206,6 +206,7 @@ def main() -> None:
             print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
     if what in ("all", "teachers"):
         print(f"→ 教师：{seed_teachers()} 人")
+    repo.invalidate_stats_cache()   # 图谱结构变了，让 /api/health 立刻反映出来
     print("完成。")
 
 
