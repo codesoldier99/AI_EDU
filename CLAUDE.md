@@ -156,6 +156,7 @@
   /skills             教学技能包装载（SKILL.md，教师写 Markdown 即扩展）
   /exam               在线考试：一次性准考凭据、服务端计时、判分、切线、导出
   /state/verification.py   掌握的质量：跨时间验证、遗忘复检、提示依赖、学法有效率
+  /state/coverage.py       培养方案覆盖度：项目铺开全景、学分认定、悬空需求队列
   /agents/universe.py      知识宇宙的视图投影（只读 L1+L2，什么都不写）
   /agents/quiz.py          出题（草案进待审队列）/ 组卷 / 批改
   /agents/solve.py         分步解题：一次只交出一步
@@ -190,6 +191,15 @@ KPAbilityLink(kp_id, module_id, weight)
 
 ProjectTask(id, project_id, name, parent_id, milestone)
 TaskKPLink(task_id, kp_id, necessity)   # ★ 拉取式核心：任务需要哪些知识点
+
+# packages/graph — 培养方案（学分认定的坐标系）
+Program(id, code, name, level, klass, version)              # 人工智能（专升本）·院长实验班
+ProgramCourse(program_id, course_id, module, semester,      # 同一门课可出现在多个方案里，
+              credit, hours, exam_type)                     # 各自的学期与学分不同
+CoursePrefix(prefix, course_id)          # 知识点代码前缀 → 课程，用于给悬空需求归位
+KPDemand(id, code, course_code, demanded_by, project_code,  # ★ 拉取式图谱建设：
+         kind, status, first_seen)                          # 引用了还没建的知识点 = 一条需求
+# 知识点归属**唯一**（knowledge_point.course_id）：一松，同一个点会在三门课里各算一次学分
 
 # packages/state — L2 可积累（系统核心资产）
 Student(id, cohort, enrolled_at)
@@ -289,11 +299,14 @@ make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑
 make practice STUDENT=<id>       # 打印此刻该练什么及其理由（调试选点逻辑）
 make skills                      # 列出已装载的教学技能包
 make kpmatch A="propose PRJ-DAC" # 知识点自动匹配（propose/queue/why/accept/reject/stats/eval）
-make signals                     # 采集全部项目的五类标准信号
+make signals                     # 采集全部项目的五类标准信号（幂等，可反复跑）
+make program A="map PRJ-DAC"     # 培养方案视图（map/demand/coverage/courses）
+make demand                      # 悬空需求队列：下一门课该先建哪几个知识点
 make deck D=pm                   # 生成汇报 PPT（all=院领导版 / pm=教师版）
 make test-study                  # 仅测学习工作台（题库/判分/解题/调研/图示）
 make test-exam                   # 仅测在线考试（凭据/计时/判分/切线/权限）
 make test-kpmatch                # 仅测知识点自动匹配（候选边界/证据/依赖边扩展）
+make test-program                # 仅测培养方案（归属移交/需求队列/学分认定）
 make exam-setup                  # 导入并发布选拔考卷
 make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 ```
@@ -324,6 +337,10 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 | 未判定 | pending | 确定性判分拿不准，转人工，不写掌握度证据 |
 | 候选映射 | mapping candidate | 机器提的任务-知识点映射，教师采纳前不进任何计算 |
 | 依赖边扩展 | prereq expansion | 把命中知识点的前置也提为候选，召回率 47%→64% |
+| 培养方案 | program | 专业的课程清单与学分要求；课程是知识点的**归集视图** |
+| 归属移交 | reattribution | 把知识点划给培养方案里的真实课程；**只改归属，不改代码** |
+| 悬空需求 | kp demand | 任务引用了还没建的知识点；按需求次数排序 = 图谱建设优先级 |
+| 覆盖度 | coverage | 学生在某课程**已验证掌握**的知识点占该课已建知识点的比例 |
 | 落地性 | groundedness | 生成文字与检索材料的 n-gram 重合率，低于阈值标"低支撑" |
 | 教学技能包 | skill pack | 教师用 Markdown 写的"怎么问、怎么出题"，不改代码即生效 |
 | 概念锚题 | anchor item | 跨年反复重测的固定题目，**考后不讲评、不进日常组卷池** |
@@ -356,6 +373,10 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 - ❌ 让知识点自动匹配直接写入 `task_kp_link`（映射是学分认定依据，只能教师采纳后写入）
 - ❌ 给候选映射做「一键采纳全部高置信度」（点下去，导师标注就变回了模型推测）
 - ❌ 适配器猜测 git 作者对应哪个学生（映射不到就跳过，宁可少记不能记错人）
+- ❌ 让一个知识点同时归属多门课（学分会重复计，且看不出来）
+- ❌ 图谱只建了几个点就下"覆盖度 X%、可认定学分"的结论（假精度，属"判不了"）
+- ❌ 把项目专有知识硬塞进某门课凑覆盖度（硬凑一次，认定的可信度就没了）
+- ❌ 为了让归属整齐而修改已被考卷或事件流引用的知识点代码（代码是身份，归属才是属性）
 - ❌ 组卷时把答案或解析一起下发给学生（批改后才给）
 - ❌ 确定性判分拿不准时猜一个结果写进事件流（必须转人工）
 - ❌ 分步解题在未降级前交出任何一步的结论
@@ -403,6 +424,15 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 知识点自动匹配（确定性检索 + 依赖边扩展，实测 Top-6 召回 64.3%）与教师审核队列；
 适配器读真实 git 仓库产出五类信号。**核心代码改动 0 行**，做法见 `docs/project-onboarding.md`。
 
+**Phase 4.2（已完成）：** 挂上真实培养方案。导入《人工智能（专升本）· 院长实验班人才培养方案》
+（28 门课 / 77.5 学分）；把数学从"机器学习第 2 章"移交给高等数学B、线性代数A、概率论与数理统计A
+三门真实课程，深度学习独立成课——**只改归属不改代码**，446 条事件与 335 条掌握态一条未动；
+新增**悬空需求队列**（引用尚未建的知识点即登记成需求，按需求数排序回答"下一门课建什么"）
+与**学分认定视图**（两道闸：图谱建设度 + 覆盖度，拿不准明确返回"判不了"）。
+实测：DAC 一个项目触及 11/28 门课、拉取 158 个知识点，其中 97 个属项目专有、不折算学分。
+做法见 `docs/project-onboarding.md`（教师指导手册）。
+
 **待推进：** T1–T5 各测点的平行卷与迁移任务命题、项目产出五维量规的录入界面、
+按需求队列补建 6 门被需要但尚未建图谱的课程、
 候选映射的教师实审（采纳率是判断这套匹配是否可用的唯一诚实指标，目前尚无判决），
 以及 `docs/decisions.md` 里参数的教师拍板。

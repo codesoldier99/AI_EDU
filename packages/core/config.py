@@ -60,6 +60,10 @@ class TeachingConfig:
     groundedness_threshold: float = 0.35
     # ---- 教师工作台 · 教学资产生成（见 packages/courseware）----
     # 授课计划切课：一次课最多覆盖多少个知识点，超出则拆成多次课
+    # ---- 学分认定（培养方案 §4）----
+    credit_min_coverage: float = 0.25   # 知识点覆盖度低于此值不予认定
+    credit_min_kps: int = 20            # 图谱建设不足此数，一律"判不了"，不给结论
+
     # ---- 知识点自动匹配（候选进待审队列，绝不直接生效）----
     # 高线以上才敢标 required；低线以下连问都不问教师，省得队列被噪声淹掉。
     kpmatch_required_conf: float = 0.62

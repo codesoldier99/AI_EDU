@@ -59,11 +59,21 @@ def persist_signals(signals: list[ProjectSignal]) -> int:
         stu = db.query_one("SELECT id FROM student WHERE sid=?", (s.student_sid,))
         if not proj or not stu:
             continue
+        # 采集必须幂等：同一个 commit 被采两次只能算一条。
+        # 否则运维多跑一次 make signals，学生的"投入"就凭空翻倍，
+        # 而报表上只会显示他很勤奋（migrations/007 把这条固化成唯一索引）。
+        # 这里走的正是那条索引，是一次索引查找，不是全表扫描。
+        at = s.occurred_at or now_str()
+        key = (proj["id"], stu["id"], s.signal_class, s.metric, s.raw_ref, at)
+        if db.query_one(
+            "SELECT 1 FROM project_signal WHERE project_id=? AND student_id=?"
+            " AND signal_class=? AND metric=? AND raw_ref=? AND occurred_at=?", key
+        ):
+            continue
         db.execute(
-            "INSERT INTO project_signal(project_id, student_id, signal_class, metric, value,"
-            " occurred_at, raw_ref) VALUES(?,?,?,?,?,?,?)",
-            (proj["id"], stu["id"], s.signal_class, s.metric, s.value,
-             s.occurred_at or now_str(), s.raw_ref),
+            "INSERT INTO project_signal(project_id, student_id, signal_class,"
+            " metric, value, occurred_at, raw_ref) VALUES(?,?,?,?,?,?,?)",
+            (proj["id"], stu["id"], s.signal_class, s.metric, s.value, at, s.raw_ref),
         )
         n += 1
     return n

@@ -37,6 +37,134 @@ def list_courses() -> list[dict]:
     return get_db().query("SELECT * FROM course ORDER BY id")
 
 
+def delete_course(course_id: int) -> None:
+    """删除空壳课程。只在知识点已全部移交后调用（seed_program 会先核对）。"""
+    db = get_db()
+    if db.scalar("SELECT COUNT(*) FROM knowledge_point WHERE course_id=?", (course_id,)):
+        raise ValueError("课程仍有知识点，不能删除")
+    db.execute("DELETE FROM program_course WHERE course_id=?", (course_id,))
+    db.execute("DELETE FROM course_prefix WHERE course_id=?", (course_id,))
+    db.execute("DELETE FROM course WHERE id=?", (course_id,))
+
+
+# ---------------- 培养方案 ----------------
+def upsert_program(code: str, name: str, level: str = "", klass: str = "",
+                   version: str = "", note: str = "") -> int:
+    db = get_db()
+    row = db.query_one("SELECT id FROM program WHERE code=?", (code,))
+    if row:
+        db.execute("UPDATE program SET name=?, level=?, klass=?, version=?, note=? WHERE id=?",
+                   (name, level, klass, version, note, row["id"]))
+        return row["id"]
+    return db.execute(
+        "INSERT INTO program(code, name, level, klass, version, note) VALUES(?,?,?,?,?,?)",
+        (code, name, level, klass, version, note))
+
+
+def get_program(code: str) -> dict | None:
+    return get_db().query_one("SELECT * FROM program WHERE code=?", (code,))
+
+
+def link_program_course(program_id: int, course_id: int, module: str, semester: int,
+                        credit: float, hours: int, exam_type: str, seq: int = 0,
+                        required: int = 1) -> None:
+    get_db().execute(
+        "INSERT OR REPLACE INTO program_course(program_id, course_id, module, semester,"
+        " credit, hours, exam_type, required, seq) VALUES(?,?,?,?,?,?,?,?,?)",
+        (program_id, course_id, module, semester, credit, hours, exam_type, required, seq))
+
+
+def program_courses(program_code: str) -> list[dict]:
+    """培养方案的课程清单，附每门课已建的知识点数。
+
+    kps=0 的课很多，这是拉取式建设的正常状态，不是数据缺失。
+    """
+    return get_db().query(
+        "SELECT c.id AS course_id, c.code, c.name, pc.module, pc.semester, pc.credit,"
+        " pc.hours, pc.exam_type, pc.seq,"
+        " (SELECT COUNT(*) FROM knowledge_point k WHERE k.course_id=c.id) AS kps"
+        " FROM program_course pc JOIN course c ON c.id=pc.course_id"
+        " JOIN program p ON p.id=pc.program_id WHERE p.code=?"
+        " ORDER BY pc.semester, pc.seq", (program_code,))
+
+
+def program_credit_total(program_id: int) -> float:
+    return round(get_db().scalar(
+        "SELECT SUM(credit) FROM program_course WHERE program_id=?", (program_id,)) or 0.0, 1)
+
+
+def set_course_prefix(prefix: str, course_id: int) -> None:
+    get_db().execute("INSERT OR REPLACE INTO course_prefix(prefix, course_id) VALUES(?,?)",
+                     (prefix, course_id))
+
+
+def course_for_code(kp_code: str) -> dict | None:
+    """按代码前缀猜这个知识点该归哪门课。用于给悬空需求归位。
+
+    取**最长匹配**：CD-ML 应该归「机器学习课程设计」而不是「机器学习」。
+    """
+    rows = get_db().query(
+        "SELECT p.prefix, c.code, c.name, c.id FROM course_prefix p"
+        " JOIN course c ON c.id=p.course_id")
+    best = None
+    for r in rows:
+        pre = r["prefix"]
+        if kp_code.upper().startswith(pre.upper() + "-") and (
+                best is None or len(pre) > len(best["prefix"])):
+            best = r
+    return best
+
+
+# ---------------- 悬空知识点需求（拉取式图谱建设） ----------------
+def add_demand(kp_code: str, demanded_by: str, project_code: str = "",
+               kind: str = "task_required") -> bool:
+    """登记一条"要用但还没建"的知识点需求。同一来源重复登记只记一次。"""
+    db = get_db()
+    if db.query_one("SELECT id FROM kp_demand WHERE code=? AND demanded_by=?",
+                    (kp_code, demanded_by)):
+        return False
+    c = course_for_code(kp_code)
+    db.execute(
+        "INSERT INTO kp_demand(code, course_code, demanded_by, project_code, kind,"
+        " status, first_seen) VALUES(?,?,?,?,?,'open',?)",
+        (kp_code, c["code"] if c else "", demanded_by, project_code, kind, now_str()))
+    return True
+
+
+def close_built_demands() -> int:
+    """知识点建出来了，对应需求自动闭合。队列因此会自己变短，不需要人去清。"""
+    return get_db().execute(
+        "UPDATE kp_demand SET status='built' WHERE status='open' AND code IN"
+        " (SELECT code FROM knowledge_point)") or 0
+
+
+def demand_queue(project_code: str | None = None) -> list[dict]:
+    """按"被多少处需求"排序的建设队列 —— 下一门课该先建哪几个点。
+
+    这是拉取式图谱建设的输出：40 门课不必平均用力，
+    被 3 个项目拉过的 20 个知识点，比没人拉的 300 个更该先建。
+    """
+    sql = ("SELECT code, course_code, COUNT(*) AS demands,"
+           " GROUP_CONCAT(DISTINCT project_code) AS projects,"
+           " GROUP_CONCAT(demanded_by) AS by_whom, MIN(first_seen) AS first_seen"
+           " FROM kp_demand WHERE status='open'")
+    args: tuple = ()
+    if project_code:
+        sql += " AND project_code=?"
+        args = (project_code,)
+    sql += " GROUP BY code, course_code ORDER BY demands DESC, code"
+    return get_db().query(sql, args)
+
+
+def demand_by_course() -> list[dict]:
+    """按课程汇总的需求：哪门课欠得最多，就该先建哪门。"""
+    return get_db().query(
+        "SELECT COALESCE(NULLIF(course_code,''),'（未归类）') AS course_code,"
+        " COUNT(DISTINCT code) AS kps, COUNT(*) AS demands"
+        " FROM kp_demand WHERE status='open'"
+        " GROUP BY course_code ORDER BY demands DESC")
+
+
 # ---------------- 知识点 ----------------
 def upsert_kp(
     course_id: int,

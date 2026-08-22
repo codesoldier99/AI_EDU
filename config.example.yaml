@@ -40,6 +40,11 @@ teaching:
   keyword_fail_ratio: 0.2        # <= 此值判"错"；两线之间一律转教师人工
   groundedness_threshold: 0.35   # 调研段落与材料的重合率低于此值标"低支撑"
 
+  # ---- 学分认定（培养方案 §4）----
+  credit_min_coverage: 0.25      # 知识点覆盖度低于此值不予认定
+  credit_min_kps: 20             # 该课程图谱建了不到这么多点，一律不给认定结论
+                                 # （只建了 3 个点时"覆盖 33%"是假精度，铁律 7：判不了 ≠ 判错）
+
   # ---- 知识点自动匹配（铁律：候选进队列，教师采纳才算数）----
   kpmatch_required_conf: 0.62    # 置信度高于此值的候选标为 required，否则 helpful
   kpmatch_min_conf: 0.30         # 低于此值直接丢弃，不进待审队列

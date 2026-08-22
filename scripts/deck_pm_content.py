@@ -12,45 +12,67 @@ import _bootstrap  # noqa: F401
 from packages.core.db import get_db
 from packages.graph import repo as graph_repo
 
+PROGRAM = "AI-ZSB-2026"
+
 
 def stats() -> dict:
     db, g = get_db(), graph_repo.stats()
     dac = graph_repo.get_course("DAC")
-    ml = graph_repo.get_course("ML")
     proj = graph_repo.get_project("PRJ-DAC")
     n_dac_kp = len(graph_repo.list_kps(dac["id"])) if dac else 0
-    n_ml_kp = len(graph_repo.list_kps(ml["id"])) if ml else 0
     n_dac_task = len(graph_repo.list_tasks(proj["id"])) if proj else 0
 
     q = graph_repo.candidate_stats("PRJ-DAC")
     s = {
         "kps": g.kps, "edges": g.edges, "tasks": g.tasks, "links": g.task_kp_links,
-        "dac_kp": n_dac_kp, "ml_kp": n_ml_kp, "dac_task": n_dac_task,
+        "dac_kp": n_dac_kp, "dac_task": n_dac_task,
         "pending": q["pending"], "accepted": q["accepted"],
-        "accept_rate": q["accept_rate"],
         "cross_edges": db.scalar(
             "SELECT COUNT(*) FROM prerequisite p"
             " JOIN knowledge_point a ON a.id=p.from_kp_id"
             " JOIN knowledge_point b ON b.id=p.to_kp_id"
             " WHERE a.course_id<>b.course_id") or 0,
-        "dac_pulls_ml": db.scalar(
-            "SELECT COUNT(*) FROM task_kp_link l"
-            " JOIN knowledge_point k ON k.id=l.kp_id"
-            " JOIN project_task t ON t.id=l.task_id"
-            " JOIN project p ON p.id=t.project_id"
-            " WHERE p.code='PRJ-DAC' AND k.course_id="
-            "(SELECT id FROM course WHERE code='ML')") or 0,
         "dac_links": db.scalar(
             "SELECT COUNT(*) FROM task_kp_link l JOIN project_task t ON t.id=l.task_id"
             " JOIN project p ON p.id=t.project_id WHERE p.code='PRJ-DAC'") or 0,
         "dac_signals": db.scalar(
             "SELECT COUNT(*) FROM project_signal WHERE project_id="
             "(SELECT id FROM project WHERE code='PRJ-DAC')") or 0,
-        "projects": db.scalar("SELECT COUNT(*) FROM project") or 0,
         "adapters": 4,
     }
-    # 人工比对量：每个任务都要在全部知识点里过一遍，这是自动匹配省掉的那件事
+
+    # 培养方案：项目铺开到哪几门课
+    from packages.state import coverage
+
+    prog = graph_repo.get_program(PROGRAM)
+    m = coverage.program_map(PROGRAM, "PRJ-DAC") if prog else {}
+    s.update(
+        prog_name=prog["name"] if prog else "",
+        prog_credit=graph_repo.program_credit_total(prog["id"]) if prog else 0,
+        n_courses=m.get("n_courses", 0),
+        n_touched=m.get("n_touched", 0),
+        n_built=m.get("n_built", 0),
+        n_empty_but_needed=m.get("n_empty_but_needed", 0),
+        pulled_total=m.get("pulled_total", 0),
+        project_only=m.get("project_only_kps", 0),
+        demand_open=m.get("demand_open", 0),
+    )
+    # 数学三门课各自已建多少（从 ML 第2章移交过来的）
+    s["math_kps"] = db.scalar(
+        "SELECT COUNT(*) FROM knowledge_point WHERE course_id IN"
+        " (SELECT id FROM course WHERE code IN"
+        " ('G18Z21030','G18Z21031','G18Z21032','G18Z21033'))") or 0
+    s["ml_kps"] = db.scalar(
+        "SELECT COUNT(*) FROM knowledge_point WHERE course_id="
+        "(SELECT id FROM course WHERE code='G18Z21022')") or 0
+    s["dl_kps"] = db.scalar(
+        "SELECT COUNT(*) FROM knowledge_point WHERE course_id="
+        "(SELECT id FROM course WHERE code='G18Z21023')") or 0
+
+    # 人工比对量：每个任务都要在全部知识点里过一遍
     s["manual_pairs"] = s["dac_task"] * s["kps"]
+    # 全建完的量级：培养方案课程数 × 一门课 250 个知识点
+    s["full_build"] = s["n_courses"] * 250
     return s
 
 
@@ -82,14 +104,14 @@ def build_specs() -> list[dict]:
                   "教师做的是**审**，不是**填**——采纳才算数",
                   "这是项目制教学最贵、也最容易半途而废的一道人工门槛"],
                  "1A7F37"),
-                (f"{n['dac_pulls_ml']}", "条「做项目时才拉取」的课程知识点",
-                 ["学生做到「训练基线分类模型」，系统才推机器学习那几个点",
-                  "不要求先修完一学期机器学习再进项目",
-                  f"跨课程依赖边 {n['cross_edges']} 条，由图谱自动接上",
-                  "知识由项目需求拉取，不由课程顺序推送"],
+                (f"{n['n_touched']} / {n['n_courses']}", "门培养方案课程，被一个项目铺到",
+                 ["专升本院长实验班培养方案，28 门课 77.5 学分",
+                  f"DAC 一个项目沿依赖边拉取 {n['pulled_total']} 个知识点",
+                  "从光学标定一路追到线性代数、高等数学、概率论",
+                  "学生不必先修完这些课再进项目"],
                  "1F6FEB"),
             ],
-            "note": "左边是省掉的教师工作量，右边是学生这一侧真正的变化。"
+            "note": "左边是省掉的教师工作量，右边是这个项目在培养方案上真实铺开的宽度。"
                     "两件事靠的是同一样东西：把项目铺成知识坐标系。",
         },
 
@@ -116,6 +138,29 @@ def build_specs() -> list[dict]:
                 "  所以不能只修其中一条。下面这套方法是按这个顺序来的。",
             ],
             "note": "这一页不谈技术。如果各位觉得这三条不是真问题，后面就都不成立，请当场打断。",
+        },
+
+        # ------------------------------------------------------------ 4 框架掉头
+        {
+            "title": "先把一个问题的方向掉过来",
+            "sub": "「一个项目怎么分解到几十门课」——这个问法会把人带进死胡同",
+            "table": [
+                ["", "方向", "由谁驱动"],
+                ["**分解**（细）", "项目 → 任务 → 知识点", "项目需求"],
+                ["**归集**（粗）", "知识点 → 课程 → 学分", "培养方案"],
+                ["**归集**（另一条）", "知识点 → M1–M8 → 能力画像", "能力标准"],
+            ],
+            "widths": [2.2, 3.6, 3.0],
+            "bullets": [
+                "**项目不分解到课程，项目分解到知识点；课程是知识点的归集视图。**",
+                "方向搞反了，就会去做「给 40 门课各建一张 300 点的图，再做 40×N 的映射」——"
+                f"那是 **{n['full_build']:,} 个知识点**的标注量，一个学期标不完，"
+                "标完了大半也没有任何项目拉取过。",
+                "  这正是多数「知识图谱 + 培养方案」项目死掉的地方。",
+                "**一个技术前提**：知识点归属必须唯一。「向量与矩阵运算」归线性代数，"
+                "机器学习只是依赖它——否则同一个点在三门课里各算一次，学分就重复计了。",
+            ],
+            "note": "这一页是后面所有做法的前提。如果各位不同意这个方向，后面就都不成立。",
         },
 
         # ------------------------------------------------------------ 4 核心判断
@@ -170,15 +215,48 @@ def build_specs() -> list[dict]:
             "sub": "领域知识点自成一门图谱，并与既有课程跨课连边",
             # 标签只显示 9 个字，长名字会被截断，所以这里写短名，含义交给下面那段话
             "bars": [
-                {"label": "机器学习图谱", "value": n["ml_kp"]},
-                {"label": "DAC领域图谱", "value": n["dac_kp"]},
-                {"label": "DAC任务数", "value": n["dac_task"]},
-                {"label": "跨课程依赖边", "value": n["cross_edges"]},
-                {"label": "拉取课程点", "value": n["dac_pulls_ml"]},
+                {"label": "机器学习", "value": n["ml_kps"]},
+                {"label": "深度学习", "value": n["dl_kps"]},
+                {"label": "数学三门", "value": n["math_kps"]},
+                {"label": "DAC项目域", "value": n["dac_kp"]},
+                {"label": "跨课程边", "value": n["cross_edges"]},
             ],
-            "note": "跨课程边是这一步的要害：DAC-05-10「标定曲线拟合」的前置是 "
-                    "ML-05-01「线性回归模型形式」。学生在光路关卡撞上拟合时，"
-                    "系统沿这条边把线性回归拉过来——他不需要先修完机器学习。",
+            "note": f"跨课程边是这一步的要害，现在有 {n['cross_edges']} 条："
+                    "DAC-05-10「标定曲线拟合」的前置是 ML-05-01「线性回归」，"
+                    "而线性回归的前置又落在线性代数A 的「向量与矩阵运算」上。"
+                    "学生在光路关卡撞上拟合时，系统沿这条链一路把它们拉过来——"
+                    "他不需要先修完机器学习，更不需要先修完线性代数。",
+        },
+
+        # ------------------------------------------------------------ 把数学还给数学课
+        {
+            "title": "第二步之后马上要做的一件事：把数学还给数学课",
+            "sub": "挂上真实培养方案，原来的偷懒就藏不住了",
+            "table": [
+                ["原来在哪", "现在归谁", "知识点"],
+                ["机器学习 第2章 数学基础", "**线性代数A** G18Z21032",
+                 "向量与矩阵运算、秩与可逆性、特征值、SVD、范数"],
+                ["机器学习 第2章 数学基础", "**高等数学B（上）** G18Z21030",
+                 "导数与偏导数、梯度与方向导数、链式法则"],
+                ["机器学习 第2章 数学基础", "**高等数学B（下）** G18Z21031",
+                 "凸函数与凸优化、拉格朗日乘子法与对偶"],
+                ["机器学习 第2章 数学基础", "**概率论与数理统计A** G18Z21033",
+                 "条件概率、贝叶斯、期望方差、MLE、信息熵"],
+                ["机器学习 第10–12章", "**深度学习** G18Z21023",
+                 f"神经网络与反向传播、优化与正则、表示学习（{n['dl_kps']} 个）"],
+            ],
+            "tsz": 13,
+            "widths": [2.5, 2.6, 3.7],
+            "bullets": [
+                "**为什么非改不可**：学生在 DAC 项目里用到「向量与矩阵运算」，"
+                "学分该记在**线性代数A**头上。挂在「机器学习第2章」下面，认定时对不上任何一门课。",
+                "**只改归属，不改知识点代码。** ML-02-01 仍然叫 ML-02-01——"
+                "这些代码被 2026 级选拔考卷引用着（17 道题，含概念锚题），"
+                "库里还有 **446 条学习事件、335 条掌握态**指向它们。",
+                "  代码是身份，归属是属性。改属性不动任何证据；改身份要动整条纵向研究基线。",
+            ],
+            "note": "移交后实测：446 条事件、335 条掌握态、17 道题一条不少，"
+                    "全部落到四门真实数学课名下。",
         },
 
         # ------------------------------------------------------------ 8 第三步
@@ -230,6 +308,48 @@ def build_specs() -> list[dict]:
                     "教师确认前不得发给学生。",
         },
 
+        # ------------------------------------------------------------ 培养方案全景
+        {
+            "kind": "barchart",
+            "title": "一个项目，在培养方案上铺开成什么样",
+            "sub": f"{n['prog_name']}　28 门课 / {n['prog_credit']} 学分",
+            "bars": [
+                {"label": "方案课程数", "value": n["n_courses"]},
+                {"label": "被项目触及", "value": n["n_touched"]},
+                {"label": "已建图谱", "value": n["n_built"]},
+                {"label": "需要未建", "value": n["n_empty_but_needed"]},
+                {"label": "悬空需求", "value": n["demand_open"]},
+            ],
+            "note": f"DAC 一个项目触及 {n['n_touched']} 门课，其中 {n['n_empty_but_needed']} 门"
+                    f"一个知识点都还没建。拉取的 {n['pulled_total']} 个知识点里，"
+                    f"{n['project_only']} 个属于项目专有知识（DMD 结构光、144 孔编号、"
+                    f"这台设备的触发时序），任何课程大纲里都没有——**它们不折算学分，系统如实显示，不硬凑**。",
+        },
+
+        # ------------------------------------------------------------ 悬空需求队列
+        {
+            "title": "创新点：让「下一门课该建什么」由数据回答",
+            "quote": "拉取式不只用于教学，也用于图谱建设本身。",
+            "table": [
+                ["知识点代码", "归属课程", "被几处需要", "谁在要"],
+                ["COA-SETUP", "计算机组成原理", "2", "关卡五 编码器四倍频 / 触发时序图"],
+                ["EPS-CALIB", "具身感知与多传感器融合", "2", "关卡二 接入相机 / 关卡三 标定采集"],
+                ["PROB-ERR", "概率论与数理统计A", "1", "关卡三 拟合标定曲线与误差分析"],
+                ["LA-COND", "线性代数A", "1", "关卡三 拟合标定曲线与误差分析"],
+            ],
+            "tsz": 13,
+            "widths": [1.9, 2.9, 1.4, 2.6],
+            "bullets": [
+                "**教师标注任务时，允许引用还不存在的知识点。** 这不是笔误，是需求："
+                "「这个任务确实要用概率论的测量误差分布，但那门课的图谱我们还没建」。",
+                "系统登记下来、按被需求次数排序，**知识点一建出来，需求自动闭合**——队列会自己变短。",
+                f"**当前队列 {n['demand_open']} 个知识点。** 高数不必一开始就建 300 个点，"
+                "先建被拉取的那几十个，随项目增长。",
+            ],
+            "note": "一张只有 30 个点但正是项目要用的高数图谱，"
+                    "比一张 300 个点没人拉的完整图谱有用得多——因为图谱是按需检索的索引，不是教学顺序表。",
+        },
+
         # ------------------------------------------------------------ 10 第四步
         {
             "title": "第四步：让项目痕迹自动变成能力证据",
@@ -275,6 +395,33 @@ def build_specs() -> list[dict]:
                 "证据不够就明说，这一条比推得准更重要。",
             ],
             "note": "这就是「拉取」的具体形态：不是先学半年螺丝刀再拆引擎。",
+        },
+
+        # ------------------------------------------------------------ 学分认定
+        {
+            "title": "学分怎么认定：两道闸，拿不准就说判不了",
+            "sub": "系统真实输出（make program A=\"coverage 1\"）",
+            "table": [
+                ["课程", "已建", "已验证", "覆盖度", "认定", "系统说明"],
+                ["高等数学B（上）", "3", "1", "33%", "—", "图谱仅建 3 个点，**判不了**"],
+                ["线性代数A", "5", "1", "20%", "—", "图谱仅建 5 个点，**判不了**"],
+                ["概率论与数理统计A", "5", "1", "20%", "—", "图谱仅建 5 个点，**判不了**"],
+                ["机器学习", "128", "4", "3%", "—", "覆盖度未达 25%"],
+                ["深度学习", "40", "0", "0%", "—", "覆盖度未达 25%"],
+            ],
+            "tsz": 13,
+            "widths": [2.3, 0.9, 1.0, 1.1, 0.9, 2.6],
+            "bullets": [
+                "**第一道闸是图谱建够了没有。** 高等数学只建了 3 个点、覆盖 33%，"
+                "如果就此给 4.5 学分，那是假精度——这属于**判不了**，不是判不合格。",
+                "  「判不了 ≠ 判错」在这里和判分是同一条规矩：拿不准时给个 ✓，比不给更糟。",
+                "**第二道闸才是培养方案 §4 的 25% 覆盖度门槛。**"
+                "分子只算**已验证掌握**（跨时间再次做对），不算当堂做对——学分要进档案。",
+                "**当前可认定学分：0.0。** 这个数字现在难看是对的：项目刚接入、"
+                "图谱刚起步、学生还没真正在系统里做这个项目。",
+            ],
+            "note": "另有 22 门课图谱尚未建设，无法认定——这不是学生没学，"
+                    "是系统还没建那门课的坐标系。把话说全，免得各位按「已经能用」来安排学期。",
         },
 
         # ------------------------------------------------------------ 13 教师侧
@@ -335,21 +482,21 @@ def build_specs() -> list[dict]:
             "sub": "把话说全，免得各位按「已经能用」来安排学期",
             "cols": [
                 ("已经跑通",
-                 [f"DAC 项目全量接入：{n['dac_task']} 任务 / {n['dac_links']} 条映射",
-                  f"知识图谱 {n['kps']} 个知识点 / {n['edges']} 条边",
-                  "自动匹配、待审队列、教师裁决全链路",
-                  "真实 git 仓库信号采集",
-                  "250 个自动化测试全绿"], "1A7F37"),
+                 [f"专升本培养方案入库：{n['n_courses']} 门课 / {n['prog_credit']} 学分",
+                  "数学从「机器学习第2章」移交给三门真实数学课",
+                  f"DAC 项目触及 {n['n_touched']} 门课，拉取 {n['pulled_total']} 个知识点",
+                  "悬空需求队列 + 自动匹配 + 教师裁决全链路",
+                  "学分认定视图（含「判不了」）"], "1A7F37"),
                 ("还差",
-                 ["候选质量只有自测数字，**没有教师实审过**",
-                  "作者映射表只有现有仓库成员",
+                 [f"{n['n_empty_but_needed']} 门被需要的课，图谱一个点没建",
+                  "候选质量只有自测数字，**没有教师实审过**",
                   "五类信号 → 能力模块的权重是拍的",
                   "学生尚未真正在系统里做这个项目"], "B45309"),
                 ("需要各位定",
-                 ["知识点拆到多细算合适",
+                 ["先建哪门课：队列给了顺序，要各位点头",
+                  "认定门槛：图谱建到多少个点才敢下结论",
                   "候选的采纳门槛：宁滥勿缺还是反过来",
-                  "关卡验收由谁签字、几人签",
-                  "项目产出如何折算学分"], "7C3AED"),
+                  "关卡验收由谁签字、几人签"], "7C3AED"),
             ],
             "bullets": [
                 "**最想请各位现在就做的一件事**：每人审 20 条候选映射。"

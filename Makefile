@@ -1,7 +1,7 @@
 PY ?= python3
 PORT ?= 8900
 
-.PHONY: help dev migrate seed demo mock-llm test test-state test-study test-kpmatch lint replay gap practice skills exam exam-setup kpmatch signals deck clean reset check
+.PHONY: help dev migrate seed demo mock-llm test test-state test-study test-kpmatch test-program lint replay gap practice skills exam exam-setup kpmatch signals program demand deck clean reset check
 
 help:
 	@echo "院长实验班 AI 教学系统"
@@ -25,6 +25,8 @@ help:
 	@echo "  make kpmatch A=\"propose PRJ-DAC\"  知识点自动匹配（候选进待审队列）"
 	@echo "                                子命令：propose/queue/why/accept/reject/stats/eval"
 	@echo "  make signals                  采集全部项目的五类信号"
+	@echo "  make program A=\"map PRJ-DAC\"     培养方案视图（map/demand/coverage/courses）"
+	@echo "  make demand                   悬空需求队列：下一门课该先建哪几个知识点"
 	@echo "  make deck [D=pm]              生成汇报 PPT（D=all 院领导版 / D=pm 教师版）"
 	@echo ""
 	@echo "  make exam-setup               导入并发布选拔考卷 + 签发准考证"
@@ -68,6 +70,9 @@ test-exam:
 test-kpmatch:
 	cd tests && $(PY) -m unittest test_kpmatch -v
 
+test-program:
+	cd tests && $(PY) -m unittest test_program -v
+
 lint:
 	$(PY) scripts/lint.py
 
@@ -91,6 +96,12 @@ kpmatch:
 
 signals:
 	$(PY) scripts/signals.py
+
+program:
+	$(PY) scripts/program.py $(A)
+
+demand:
+	$(PY) scripts/program.py demand $(P)
 
 deck:
 	$(PY) scripts/make_deck.py $(or $(D),all)

@@ -25,6 +25,7 @@ SEED = ROOT / "data" / "seed"
 
 # 多门课程 / 多个项目并存：新增一门课或一个项目就在这里加一行文件名。
 # 课程顺序有意义——跨课程前置边（如 DAC-05-10 依赖 ML-05-01）要求被引课先入库。
+PROGRAM_FILE = "program_ai_zsb.yaml"
 COURSE_FILES = ["course_ml.yaml", "course_dac.yaml"]
 PROJECT_FILES = ["projects.yaml", "projects_dac.yaml"]
 
@@ -41,6 +42,83 @@ def _split_row(row: str, n: int) -> list[str]:
     return parts[:n]
 
 
+# ---------------------------------------------------------------- 培养方案
+def seed_program(file: str = "program_ai_zsb.yaml") -> dict:
+    """导入培养方案：专业、课程清单、课程代码前缀。
+
+    **只导入"有哪些课"，不导入"每门课有哪些知识点"。**
+    绝大多数课程导入后知识点数是 0，这是刻意的：图谱按项目拉取建设，
+    没有任何项目拉取过的课先不建。该建哪门课的哪一部分由 kp_demand 队列回答。
+    """
+    data = _yaml(SEED / file)
+    p = data["program"]
+    pid = repo.upsert_program(p["code"], p["name"], p.get("level", ""), p.get("klass", ""),
+                              str(p.get("version", "")), p.get("note", ""))
+    n = 0
+    for seq, row in enumerate(data.get("courses", [])):
+        code, name, module, sem, credit, hours, exam, prefix = _split_row(row, 8)
+        cid = repo.upsert_course(code, name, float(credit or 0), str(sem or ""))
+        repo.link_program_course(pid, cid, module, int(sem or 0), float(credit or 0),
+                                 int(hours or 0), exam, seq)
+        if prefix:
+            repo.set_course_prefix(prefix, cid)
+        n += 1
+
+    # 项目知识域：不属于培养方案任何一门课，因此不折算学分。
+    n_dom = 0
+    for row in data.get("project_domains", []):
+        code, name = _split_row(row, 2)
+        repo.upsert_course(code, name, 0, "")
+        n_dom += 1
+
+    total = repo.program_credit_total(pid)
+    return {"program": p["code"], "courses": n, "domains": n_dom,
+            "total_credit": total}
+
+
+def retire_empty_courses(file: str = "program_ai_zsb.yaml") -> list[str]:
+    """删掉知识点已全部移交出去的空壳课程。
+
+    **必须在课程图谱导入之后调用**——移交是 seed_course 干的，
+    在那之前 ML 还挂着 183 个知识点，看上去"非空"。
+    只删确实一个知识点都不剩的，剩一个都不动：宁可留个空壳，
+    也不能把还有人引用的课删掉。
+    """
+    data = _yaml(SEED / file)
+    retired = []
+    for code in data.get("retire_courses", []):
+        c = repo.get_course(code)
+        if not c:
+            continue
+        left = repo.list_kps(c["id"])
+        if left:
+            print(f"  ⚠ 课程 {code} 仍有 {len(left)} 个知识点，未退役（归属尚未全部移交）")
+            continue
+        repo.delete_course(c["id"])
+        retired.append(code)
+    return retired
+
+
+def _ensure_course(code: str, unit_name: str) -> int:
+    """取移交目标课程的 id；不存在就先把培养方案补载一遍再取。
+
+    归属移交依赖培养方案先入库。与其要求每个调用方都记得这个顺序
+    （测试里直接调 seed_course() 的地方就会踩到），不如让它自己补上——
+    培养方案导入是幂等的，补一次没有副作用。
+    补完还是找不到，才是真的配错了课程代码，这时必须报错而不是默默归错人。
+    """
+    c = repo.get_course(code)
+    if c:
+        return c["id"]
+    seed_program(PROGRAM_FILE)
+    c = repo.get_course(code)
+    if not c:
+        raise SystemExit(
+            f"✗ 章节「{unit_name}」要移交给课程 {code}，但培养方案里没有这门课。"
+            f"\n  检查 {PROGRAM_FILE} 的课程代码，或该章节的 course: 写错了。")
+    return c["id"]
+
+
 # ---------------------------------------------------------------- 课程图谱
 def seed_course(file: str = "course_ml.yaml") -> dict:
     data = _yaml(SEED / file)
@@ -54,14 +132,23 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
 
     rows: list[tuple] = []
     for unit in data["units"]:
+        # unit 可以写 `course:` 覆盖归属，把整章移交给培养方案里的另一门课。
+        # 例：原「第2章 数学基础」拆成三段，分别归线性代数A / 高等数学B / 概率论。
+        # 移交只改 knowledge_point.course_id，知识点代码不动——
+        # 代码被考卷与事件流引用着，是身份；归属是属性。
+        owner = course_id
+        if unit.get("course"):
+            owner = _ensure_course(unit["course"], unit["name"])
         for row in unit["kps"]:
             code, name, ktype, diff, mods, prereqs, brief = _split_row(row, 7)
-            rows.append((unit["name"], code, name, ktype, diff, mods, prereqs, brief))
+            rows.append((unit["name"], code, name, ktype, diff, mods, prereqs, brief, owner))
 
     # 第一遍：建节点
-    for unit, code, name, ktype, diff, mods, _pre, brief in rows:
+    owners: set[int] = set()
+    for unit, code, name, ktype, diff, mods, _pre, brief, owner in rows:
+        owners.add(owner)
         kp_id = repo.upsert_kp(
-            course_id, code, name, brief, "atomic", ktype or "concept",
+            owner, code, name, brief, "atomic", ktype or "concept",
             float(diff or 0.5), unit,
         )
         for mc in [x.strip() for x in mods.split(",") if x.strip()]:
@@ -76,7 +163,10 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
         for pc in [x.strip() for x in pre_codes.split(",") if x.strip()]:
             frm = repo.get_kp_by_code(pc)
             if not frm:
+                # 引用了尚不存在的知识点：登记成需求，不是报个警就算了。
+                # 这是拉取式图谱建设的入口——见 migrations/006_program.sql。
                 missing.append((code, pc))
+                repo.add_demand(pc, demanded_by=f"kp:{code}", kind="prereq")
                 continue
             repo.add_edge(frm.id, to.id, "prereq", 1.0)
             n_edges += 1
@@ -84,8 +174,10 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
     cycles = algo.detect_cycles()
     if cycles:
         raise SystemExit(f"✗ 依赖图存在环，拒绝入库：{cycles[:3]}")
+    repo.close_built_demands()
     return {"course": c["code"], "kps": len(rows), "edges": n_edges,
-            "missing_prereqs": missing, "modules": len(mod_ids)}
+            "missing_prereqs": missing, "modules": len(mod_ids),
+            "owner_courses": len(owners)}
 
 
 # ---------------------------------------------------------------- 项目
@@ -105,13 +197,19 @@ def seed_projects(file: str = "projects.yaml") -> dict:
                 for kc in [x.strip() for x in codes.split(",") if x.strip()]:
                     kp = repo.get_kp_by_code(kc)
                     if not kp:
+                        # 教师标注了一个还没建的知识点。这不是笔误，是需求：
+                        # "这个任务需要概率论里的正态分布，但那门课的图谱还没建"。
+                        # 登记进队列，等它被建出来时自动闭合。
                         unknown.append(kc)
+                        repo.add_demand(kc, demanded_by=f"task:{code}",
+                                        project_code=p["code"], kind=f"task_{nec}")
                         continue
                     repo.link_task_kp(tid, kp.id, nec, "teacher")
                     n_links += 1
         for dep in p.get("deps", []):
             a, b = [x.strip() for x in dep.split(">")]
             repo.add_task_dependency(a, b)
+    repo.close_built_demands()
     return {"tasks": n_tasks, "task_kp_links": n_links, "unknown_kp_codes": sorted(set(unknown))}
 
 
@@ -190,21 +288,29 @@ def main() -> None:
     db = get_db()
     print("→ 迁移数据库")
     db.migrate()
+    if what in ("all", "program"):
+        r = seed_program(PROGRAM_FILE)
+        print(f"→ 培养方案 {r['program']}：{r['courses']} 门课 / 合计 {r['total_credit']} 学分"
+              f"（另有 {r['domains']} 个项目知识域，不折算学分）")
     if what in ("all", "course"):
         for f in COURSE_FILES:
             r = seed_course(f)
             print(f"→ 课程图谱 {r['course']}：{r['kps']} 知识点 / {r['edges']} 依赖边 "
                   f"/ {r['modules']} 能力模块")
             if r["missing_prereqs"]:
-                print(f"  ⚠ 未识别的前置引用 {len(r['missing_prereqs'])} 处："
-                      f"{r['missing_prereqs'][:5]}")
+                print(f"  → 前置引用了 {len(r['missing_prereqs'])} 个尚未建的知识点，"
+                      f"已登记进需求队列（make demand 查看）")
         print("  ✓ 环检测通过（含跨课程边，全图仍为 DAG）")
+        retired = retire_empty_courses(PROGRAM_FILE)
+        if retired:
+            print(f"  ✓ 已退役空壳课程：{'、'.join(retired)}（知识点已全部移交给培养方案课程）")
     if what in ("all", "projects"):
         for f in PROJECT_FILES:
             r = seed_projects(f)
             print(f"→ 项目任务 {f}：{r['tasks']} 个任务 / {r['task_kp_links']} 条任务-知识点映射")
             if r["unknown_kp_codes"]:
-                print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
+                print(f"  → 任务要求了 {len(r['unknown_kp_codes'])} 个尚未建的知识点，"
+                      f"已登记进需求队列：{'、'.join(r['unknown_kp_codes'][:4])}…")
     if what in ("all", "kb"):
         r = seed_kb()
         print(f"→ 知识库：{sum(r.values())} 个文本块，来自 {len(r)} 个文件")
