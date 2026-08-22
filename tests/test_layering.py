@@ -108,6 +108,23 @@ class TestLayering(unittest.TestCase):
             body = src.split(f"def {fn}(")[1].split("\ndef ")[0]
             self.assertIn("origin<>'anchor'", body, f"{fn} 没有排除锚题")
 
+    def test_kpmatch_never_writes_the_real_mapping(self):
+        """任务-知识点映射是学分认定的依据，只能由教师采纳后写入。
+
+        自动匹配可以提候选、可以排序、可以解释，就是不能自己落笔。
+        这条一旦失守，"导师标注"就悄悄变成了"模型推测"，
+        而且看不出来——所有下游（缺口、挡路度、能力追溯）都会照单全收。
+        """
+        f = ROOT / "packages" / "agents" / "kpmatch.py"
+        ids = identifiers(f)
+        self.assertNotIn("link_task_kp", ids, "匹配智能体直接写了正式映射表")
+        self.assertNotIn("decide_candidate", ids, "匹配智能体自己替教师做了裁决")
+
+    def test_lexmatch_is_a_leaf_tool(self):
+        """判定部分必须是零依赖的确定性工具，换模型不影响候选与分数。"""
+        for m in imports_of(ROOT / "packages" / "tools" / "lexmatch.py"):
+            self.assertFalse(m.startswith("packages."), f"lexmatch 依赖了 {m}")
+
     def test_tools_depend_on_nothing(self):
         """确定性工具箱是叶子节点：谁都能用它，它谁都不用。"""
         for f in pkg_files("tools"):

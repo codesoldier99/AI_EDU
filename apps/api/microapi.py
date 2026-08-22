@@ -186,6 +186,12 @@ class App:
                 f = (app.static_dir / rel).resolve()
                 if not str(f).startswith(str(app.static_dir.resolve())) or not f.exists():
                     f = app.static_dir / "index.html"
+                # 目录路径给它目录里的 index.html。不这么写，访问 /teacher/ 会在
+                # read_bytes() 上抛 IsADirectoryError，连接被直接掐断——
+                # 浏览器只显示一片空白，看不出是服务端炸了。
+                if f.is_dir():
+                    idx = f / "index.html"
+                    f = idx if idx.exists() else app.static_dir / "index.html"
                 ctype = mimetypes.guess_type(str(f))[0] or "text/plain"
                 if ctype.startswith("text/") or ctype.endswith("javascript"):
                     ctype += "; charset=utf-8"

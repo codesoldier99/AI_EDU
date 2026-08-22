@@ -16,6 +16,14 @@ config.yaml
 # 演示用的项目原始信号（由 scripts/demo.py 生成）
 data/seed/signals/
 
+# 适配器的本机配置：含 邮箱→学号 的身份关联，属个人信息，不入库。
+# 模板见同目录 *.example.yaml。
+data/adapters/*.yaml
+!data/adapters/*.example.yaml
+
+# LibreOffice 转换 PPT/PDF 时留下的锁文件
+.~lock.*#
+
 # 学生名单等含个人信息的原始表格：几十人协作的仓库不放 PII
 # 需要共享时走学院内部渠道，或先脱敏再单独放到 data/ 下并说明口径
 *.xlsx

@@ -152,7 +152,7 @@
   /llm                大模型统一封装（可替换层）
   /errors             错误模式库（核心资产）
   /quiz               题库 + 确定性选题 + 确定性判分（可积累资产，**不依赖大模型**）
-  /tools              确定性工具箱：安全算术求值、落地性检查（铁律 3 的实体，零依赖）
+  /tools              确定性工具箱：安全算术求值、落地性检查、文本匹配（铁律 3 的实体，零依赖）
   /skills             教学技能包装载（SKILL.md，教师写 Markdown 即扩展）
   /exam               在线考试：一次性准考凭据、服务端计时、判分、切线、导出
   /state/verification.py   掌握的质量：跨时间验证、遗忘复检、提示依赖、学法有效率
@@ -161,6 +161,9 @@
   /agents/solve.py         分步解题：一次只交出一步
   /agents/research.py      限域调研：只查院内三库，产出计入交付物不计入掌握度
   /agents/visualize.py     图示：SVG 由确定性代码生成，模型只写解读
+  /agents/kpmatch.py       知识点自动匹配：确定性检索 + 依赖边扩展，候选进待审队列
+  /tools/lexmatch.py       中英混排 TF-IDF 匹配（判定部分，零依赖、可复算）
+  /adapters/dac3d.py       DAC-3D 产业项目适配器：读真实 git 仓库 + 交出任务语料
 /skills               教学技能包（教师可写，进 git，不从网上装）
 /migrations
 /scripts
@@ -285,8 +288,12 @@ make replay STUDENT=<id>         # 从事件流重算状态，校验一致性
 make gap STUDENT=<id> TASK=<code># 打印任务知识缺口（调试拉取逻辑）
 make practice STUDENT=<id>       # 打印此刻该练什么及其理由（调试选点逻辑）
 make skills                      # 列出已装载的教学技能包
+make kpmatch A="propose PRJ-DAC" # 知识点自动匹配（propose/queue/why/accept/reject/stats/eval）
+make signals                     # 采集全部项目的五类标准信号
+make deck D=pm                   # 生成汇报 PPT（all=院领导版 / pm=教师版）
 make test-study                  # 仅测学习工作台（题库/判分/解题/调研/图示）
 make test-exam                   # 仅测在线考试（凭据/计时/判分/切线/权限）
+make test-kpmatch                # 仅测知识点自动匹配（候选边界/证据/依赖边扩展）
 make exam-setup                  # 导入并发布选拔考卷
 make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 ```
@@ -315,6 +322,8 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 | 学习工作台 | study workbench | 出题测练 / 分步解题 / 限域调研 / 图示，共用同一学生上下文 |
 | 待审草案 | pending draft | 模型出的题，教师确认前不得发给学生 |
 | 未判定 | pending | 确定性判分拿不准，转人工，不写掌握度证据 |
+| 候选映射 | mapping candidate | 机器提的任务-知识点映射，教师采纳前不进任何计算 |
+| 依赖边扩展 | prereq expansion | 把命中知识点的前置也提为候选，召回率 47%→64% |
 | 落地性 | groundedness | 生成文字与检索材料的 n-gram 重合率，低于阈值标"低支撑" |
 | 教学技能包 | skill pack | 教师用 Markdown 写的"怎么问、怎么出题"，不改代码即生效 |
 | 概念锚题 | anchor item | 跨年反复重测的固定题目，**考后不讲评、不进日常组卷池** |
@@ -344,6 +353,9 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 - ❌ 把一次做对当成掌握并从此不再回访
 - ❌ 前端引用 CDN 上的 JS/CSS/字体
 - ❌ 把模型生成的题目直接发给学生（必须先过教师审核）
+- ❌ 让知识点自动匹配直接写入 `task_kp_link`（映射是学分认定依据，只能教师采纳后写入）
+- ❌ 给候选映射做「一键采纳全部高置信度」（点下去，导师标注就变回了模型推测）
+- ❌ 适配器猜测 git 作者对应哪个学生（映射不到就跳过，宁可少记不能记错人）
 - ❌ 组卷时把答案或解析一起下发给学生（批改后才给）
 - ❌ 确定性判分拿不准时猜一个结果写进事件流（必须转人工）
 - ❌ 分步解题在未降级前交出任何一步的结论
@@ -386,5 +398,11 @@ make exam A="tickets ML-SELECT-2026"   # 考试运维（见 scripts/exam.py）
 （`packages/exam`、`docs/measurement-plan.md`）：128 人全部录取、严格按分数线取 53 人，
 落选 75 人构成天然对照组，切分点构成断点回归设计。
 
-**待推进：** T1–T5 各测点的平行卷与迁移任务命题、项目产出五维量规的录入界面，
+**Phase 4.1（已完成）：** 第一个**真实在研产业项目**接入——DAC-3D 色散共聚焦光学检测系统。
+领域知识图谱 101 个知识点并与 ML 图谱跨课程连边（15 条），六关卡任务树 41 个任务 / 154 条映射；
+知识点自动匹配（确定性检索 + 依赖边扩展，实测 Top-6 召回 64.3%）与教师审核队列；
+适配器读真实 git 仓库产出五类信号。**核心代码改动 0 行**，做法见 `docs/project-onboarding.md`。
+
+**待推进：** T1–T5 各测点的平行卷与迁移任务命题、项目产出五维量规的录入界面、
+候选映射的教师实审（采纳率是判断这套匹配是否可用的唯一诚实指标，目前尚无判决），
 以及 `docs/decisions.md` 里参数的教师拍板。

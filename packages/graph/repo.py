@@ -290,6 +290,104 @@ def required_kps(task_id: int, include_helpful: bool = False) -> list[dict]:
     return get_db().query(sql, (task_id,))
 
 
+# ---------------- 任务-知识点候选（待审草案队列） ----------------
+# 候选不是事实：系统其余部分只读 task_kp_link，对本表一无所知。
+# 只有教师采纳后才 link_task_kp(annotated_by='teacher')，见 accept_candidate。
+
+def add_candidate(task_id: int, kp_id: int, necessity: str, score: float,
+                  confidence: float, evidence: list, source_ref: str = "",
+                  rationale: str = "", matcher: str = "lexical") -> bool:
+    """登记一条候选。已存在（无论待审还是已判过）则跳过，返回是否新增。
+
+    跳过已判过的是刻意的：教师否决过的映射，不该在下次重跑匹配时又冒出来烦他。
+    """
+    db = get_db()
+    if db.query_one("SELECT id FROM task_kp_candidate WHERE task_id=? AND kp_id=?",
+                    (task_id, kp_id)):
+        return False
+    if db.query_one("SELECT task_id FROM task_kp_link WHERE task_id=? AND kp_id=?",
+                    (task_id, kp_id)):
+        return False        # 教师已经标过了，不必再问一遍
+    db.execute(
+        "INSERT INTO task_kp_candidate(task_id, kp_id, necessity, score, confidence,"
+        " evidence, source_ref, rationale, matcher, status, created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,'pending',?)",
+        (task_id, kp_id, necessity, float(score), float(confidence),
+         dumps(evidence), source_ref, rationale, matcher, now_str()),
+    )
+    return True
+
+
+def list_candidates(project_code: str | None = None, status: str = "pending",
+                    limit: int = 300) -> list[dict]:
+    """待审队列。按置信度降序——教师先看最有把握的，省时间。"""
+    sql = (
+        "SELECT c.*, t.code AS task_code, t.name AS task_name,"
+        " k.code AS kp_code, k.name AS kp_name, p.code AS project_code"
+        " FROM task_kp_candidate c"
+        " JOIN project_task t ON t.id=c.task_id"
+        " JOIN knowledge_point k ON k.id=c.kp_id"
+        " JOIN project p ON p.id=t.project_id WHERE 1=1"
+    )
+    args: list = []
+    if status:
+        sql += " AND c.status=?"
+        args.append(status)
+    if project_code:
+        sql += " AND p.code=?"
+        args.append(project_code)
+    sql += " ORDER BY c.confidence DESC, c.score DESC LIMIT ?"
+    args.append(limit)
+    return get_db().query(sql, tuple(args))
+
+
+def get_candidate(cand_id: int) -> dict | None:
+    return get_db().query_one("SELECT * FROM task_kp_candidate WHERE id=?", (cand_id,))
+
+
+def decide_candidate(cand_id: int, accept: bool, decided_by: str,
+                     necessity: str | None = None) -> dict:
+    """教师裁决。采纳才写入 task_kp_link，且署名为 teacher——模型不署名。"""
+    c = get_candidate(cand_id)
+    if not c:
+        raise KeyError(f"候选不存在：{cand_id}")
+    if c["status"] != "pending":
+        return {"ok": False, "reason": f"已被处理过：{c['status']}"}
+    nec = necessity or c["necessity"]
+    if accept:
+        link_task_kp(c["task_id"], c["kp_id"], nec, "teacher")
+    get_db().execute(
+        "UPDATE task_kp_candidate SET status=?, necessity=?, decided_by=?, decided_at=?"
+        " WHERE id=?",
+        ("accepted" if accept else "rejected", nec, decided_by, now_str(), cand_id),
+    )
+    invalidate_stats_cache()
+    return {"ok": True, "status": "accepted" if accept else "rejected",
+            "task_id": c["task_id"], "kp_id": c["kp_id"], "necessity": nec}
+
+
+def candidate_stats(project_code: str | None = None) -> dict:
+    """待审队列概况。采纳率是这套匹配值不值得用的唯一诚实指标。"""
+    db = get_db()
+    sql = ("SELECT c.status, COUNT(*) n FROM task_kp_candidate c"
+           " JOIN project_task t ON t.id=c.task_id"
+           " JOIN project p ON p.id=t.project_id")
+    args: tuple = ()
+    if project_code:
+        sql += " WHERE p.code=?"
+        args = (project_code,)
+    sql += " GROUP BY c.status"
+    by = {r["status"]: r["n"] for r in db.query(sql, args)}
+    decided = by.get("accepted", 0) + by.get("rejected", 0)
+    return {
+        "pending": by.get("pending", 0),
+        "accepted": by.get("accepted", 0),
+        "rejected": by.get("rejected", 0),
+        "decided": decided,
+        "accept_rate": round(by.get("accepted", 0) / decided, 3) if decided else None,
+    }
+
+
 def tasks_requiring(kp_id: int) -> list[int]:
     return [
         r["task_id"]

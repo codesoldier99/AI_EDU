@@ -1,7 +1,7 @@
 PY ?= python3
 PORT ?= 8900
 
-.PHONY: help dev migrate seed demo mock-llm test test-state test-study lint replay gap practice skills exam exam-setup clean reset check
+.PHONY: help dev migrate seed demo mock-llm test test-state test-study test-kpmatch lint replay gap practice skills exam exam-setup kpmatch signals deck clean reset check
 
 help:
 	@echo "院长实验班 AI 教学系统"
@@ -21,6 +21,11 @@ help:
 	@echo "  make gap STUDENT=<id> TASK=<code>   打印任务知识缺口"
 	@echo "  make practice STUDENT=<id> [TASK=<code>]  打印此刻该练什么及其理由"
 	@echo "  make skills                   列出已装载的教学技能包"
+	@echo ""
+	@echo "  make kpmatch A=\"propose PRJ-DAC\"  知识点自动匹配（候选进待审队列）"
+	@echo "                                子命令：propose/queue/why/accept/reject/stats/eval"
+	@echo "  make signals                  采集全部项目的五类信号"
+	@echo "  make deck [D=pm]              生成汇报 PPT（D=all 院领导版 / D=pm 教师版）"
 	@echo ""
 	@echo "  make exam-setup               导入并发布选拔考卷 + 签发准考证"
 	@echo "  make exam A=\"rank ML-SELECT-2026\"   考试运维（import/publish/tickets/"
@@ -60,6 +65,9 @@ test-study:
 test-exam:
 	cd tests && $(PY) -m unittest test_exam -v
 
+test-kpmatch:
+	cd tests && $(PY) -m unittest test_kpmatch -v
+
 lint:
 	$(PY) scripts/lint.py
 
@@ -77,6 +85,15 @@ practice:
 
 skills:
 	$(PY) scripts/skills.py
+
+kpmatch:
+	$(PY) scripts/kpmatch.py $(A)
+
+signals:
+	$(PY) scripts/signals.py
+
+deck:
+	$(PY) scripts/make_deck.py $(or $(D),all)
 
 exam:
 	$(PY) scripts/exam.py $(A)

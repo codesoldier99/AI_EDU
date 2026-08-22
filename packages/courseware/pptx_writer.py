@@ -321,18 +321,31 @@ def build_slide(spec: dict, page: int, total: int) -> str:
         y += 400000 * len(rows) + 260000
 
     if spec.get("cols"):
-        colw = (W - 2 * M - 400000) // 2
+        # 列宽按**实际列数**算。原来这里写死了 2，三栏版式会整列溢出到画布外——
+        # 而且溢出的那一列在 PowerPoint 里照样存在，只是看不见，改稿时很难发现。
+        ncol = max(len(spec["cols"]), 1)
+        gap = 400000 if ncol <= 2 else 260000
+        colw = (W - 2 * M - gap * (ncol - 1)) // ncol
+        head_sz, item_sz = (17, 15) if ncol <= 2 else (15, 12)
+        # 盒高不能按"每条一行"算：列一窄，长条目就折行，文字会掉到色块外面。
+        # 中文字宽约等于字号，据此估出每行能放几个字，再折算行数。留 0.88 余量给标点与英文。
+        per_line = max(6, int((colw - 460000) * 0.88 / (item_sz * 12700)))
+
+        def _lines(items: list) -> int:
+            return sum(max(1, -(-len(str(t)) // per_line)) for t in items)
+
+        box_h = max(300000 + 330000 * _lines(c[1]) for c in spec["cols"])
         for i, (head, items, color) in enumerate(spec["cols"]):
-            x = M + i * (colw + 400000)
-            sh += _rect(idx, x, y, colw, 300000 + 330000 * len(items), color, 9000)
+            x = M + i * (colw + gap)
+            sh += _rect(idx, x, y, colw, box_h, color, 9000)
             idx += 1
-            body = _para(head, 17, color, bold=True, space_before=0)
-            body += "".join(_para(t, 15, "333333", bullet="•", space_before=200)
+            body = _para(head, head_sz, color, bold=True, space_before=0)
+            body += "".join(_para(t, item_sz, "333333", bullet="•", space_before=200)
                             for t in items)
-            sh += _txbox(idx, f"c{i}", x + 220000, y + 150000, colw - 440000,
-                         300000 + 330000 * len(items), body)
+            sh += _txbox(idx, f"c{i}", x + 200000, y + 150000, colw - 400000,
+                         box_h, body)
             idx += 1
-        y += 400000 + 330000 * max(len(c[1]) for c in spec["cols"])
+        y += box_h + 160000
 
     if spec.get("image"):
         iw, ih = spec["_imgsize"]

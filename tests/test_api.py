@@ -176,3 +176,66 @@ class TestStudyRoutes(DBTestCase):
         with self.assertRaises(HTTPError) as cm:
             self.app.dispatch(req("GET", f"/api/solve/{sid}", "student:S001"))
         self.assertEqual(cm.exception.status, 403)
+
+class TestKPMatchRoutes(DBTestCase):
+    """映射审核路由：裁决权只在教师手里。"""
+
+    seed_course = True
+
+    def setUp(self):
+        super().setUp()
+        self.db.execute(
+            "INSERT INTO teacher(code, name, klasses) VALUES('T1','甲老师','[]')")
+        pid = g.upsert_project("P1", "测试项目", "test", "none")
+        g.upsert_task(pid, "T1", "反向传播与梯度消失诊断", None, 0, 0)
+        self.app = create_app()
+        from packages.agents.kpmatch import KPMatchAgent
+        KPMatchAgent().propose_project("P1", with_rationale=False)
+
+    def test_queue_requires_teacher(self):
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("GET", "/api/kpmatch/queue", token="student:S001"))
+
+    def test_queue_returns_parsed_evidence(self):
+        r = self.app.dispatch(req("GET", "/api/kpmatch/queue", token="teacher:T1",
+                                  query={"project": "P1"}))
+        self.assertTrue(r["items"])
+        self.assertIsInstance(r["items"][0]["evidence"], list,
+                              "证据应已解析成数组，前端不该再解一次 JSON")
+
+    def test_accept_signs_as_teacher_and_is_idempotent(self):
+        cid = g.list_candidates("P1", "pending")[0]["id"]
+        r = self.app.dispatch(req("POST", f"/api/kpmatch/decide/{cid}", token="teacher:T1",
+                                  body={"action": "accept"}))
+        self.assertEqual(r["status"], "accepted")
+        row = self.db.query_one(
+            "SELECT annotated_by FROM task_kp_link WHERE task_id=? AND kp_id=?",
+            (r["task_id"], r["kp_id"]))
+        self.assertEqual(row["annotated_by"], "teacher")
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("POST", f"/api/kpmatch/decide/{cid}", token="teacher:T1",
+                                  body={"action": "accept"}))
+
+    def test_bad_action_rejected(self):
+        cid = g.list_candidates("P1", "pending")[0]["id"]
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("POST", f"/api/kpmatch/decide/{cid}", token="teacher:T1",
+                                  body={"action": "maybe"}))
+
+
+class TestStaticDirectoryServing(DBTestCase):
+    """目录路径必须给出目录里的 index.html。
+
+    在这之前，访问 /teacher/ 会在 read_bytes() 上抛 IsADirectoryError，
+    连接被直接掐断，浏览器只看到一片空白——演示现场最难查的那种故障。
+    """
+
+    def test_directory_maps_to_its_index(self):
+        from packages.core.config import ROOT
+
+        web = ROOT / "apps" / "web"
+        self.assertTrue((web / "teacher" / "index.html").exists())
+        d = (web / "teacher").resolve()
+        self.assertTrue(d.is_dir())
+        self.assertTrue((d / "index.html").exists(),
+                        "静态目录缺少 index.html，/teacher/ 会退回主界面")

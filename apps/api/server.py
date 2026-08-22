@@ -14,7 +14,7 @@ from packages.core.db import get_db  # noqa: E402
 from . import auth  # noqa: E402
 from .microapi import App  # noqa: E402
 from .routes import (  # noqa: E402
-    admin, courseware, diagnosis, exam, graph, learning, study, universe,
+    admin, courseware, diagnosis, exam, graph, kpmatch, learning, study, universe,
 )
 
 
@@ -29,6 +29,7 @@ def create_app() -> App:
     study.register(app)
     exam.register(app)
     courseware.register(app)
+    kpmatch.register(app)
     return app
 
 

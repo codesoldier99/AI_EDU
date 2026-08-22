@@ -1,0 +1,22 @@
+# DAC-3D 适配器配置模板
+#
+# 复制为 data/adapters/dac3d.yaml 后生效（真实文件已在 .gitignore 中）。
+#
+# 为什么真实文件不进 git：authors 段是 **邮箱 → 学号** 的身份关联，
+# 属于个人信息。本仓库几十人协作，PII 一律不入库（同 *.xlsx 的处理）。
+# 模板里只放不敏感的部分：仓库位置与机器人忽略名单。
+
+# 项目仓库在本机的位置。服务器上没有这个仓库时，适配器自动判定为不可用，
+# collect() 返回空、task_corpus() 返回空——不报错，也不编数据。
+repo_path: "~/projects/dac-3d_system_v3.0"
+
+# git 身份 → 学号。由导师维护，系统不猜：
+# 映射不到的作者直接跳过，宁可少记，也不能把工作量记到别人头上。
+authors: {}
+  # "someone@example.com": "2026001"
+
+# 明确忽略：不是人，或不代表学生工作量
+ignore:
+  - "noreply@anthropic.com"
+  - "198982749+Copilot@users.noreply.github.com"
+  - "action@github.com"

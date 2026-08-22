@@ -46,4 +46,4 @@ def collect_all(since: datetime | str | None = None) -> dict[str, int]:
 
 
 # 导入以触发注册（新增适配器只需在此加一行 import）
-from . import agv, gitea, vision  # noqa: E402,F401
+from . import agv, dac3d, gitea, vision  # noqa: E402,F401

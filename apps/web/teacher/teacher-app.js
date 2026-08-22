@@ -13,7 +13,8 @@
 
 const S = { token: localStorage.getItem('aiedu.token') || '', me: null,
   courses: [], courseId: null, syllabus: null, sessions: [], deckSessionId: null,
-  deckDetail: null, deckNote: null, chat: {}, view: 'syllabus' };
+  deckDetail: null, deckNote: null, chat: {}, view: 'syllabus',
+  kmProject: 'PRJ-DAC', kmItems: null, kmStats: null, kmWhy: {} };
 
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -56,6 +57,9 @@ const NAV = [
     { id: 'teaching_plan', label: '授课计划', icon: '📅', ready: true },
     { id: 'deck', label: '课件生成', icon: '🖼', ready: true },
     { id: 'exam', label: '试卷与练习', icon: '📝', ready: false },
+  ] },
+  { group: '项目制教学', items: [
+    { id: 'kpmatch', label: '映射审核', icon: '🔗', ready: true },
   ] },
   { group: '学情与评价', items: [
     { id: 'grading', label: '评卷', icon: '✅', ready: false },
@@ -372,6 +376,100 @@ async function onRerenderDeck() {
 }
 
 // ---------------------------------------------------------------- 占位页
+
+// ---------------------------------------------------------------- 映射审核
+/* 任务-知识点映射的候选审核。
+ *
+ * 这一页的克制是刻意的：不做批量全选、不做「一键采纳高置信度」。
+ * 映射是学分认定的依据，一条一条看是它应得的成本——
+ * 真做了批量按钮，教师点下去的那一刻，「导师标注」就变回了「模型推测」。
+ */
+async function ensureKpmatch(force) {
+  if (S.kmItems && !force) return;
+  const d = await api(`/api/kpmatch/queue?project=${encodeURIComponent(S.kmProject)}&limit=200`);
+  S.kmItems = d.items; S.kmStats = d.stats;
+}
+
+function kmConfBadge(c) {
+  const cls = c >= 0.62 ? 'ok' : (c >= 0.45 ? '' : 'weak');
+  return h('span', { class: `km-conf ${cls}` }, Number(c).toFixed(2));
+}
+
+async function kmDecide(id, action) {
+  try {
+    await api(`/api/kpmatch/decide/${id}`, { body: { action } });
+    S.kmItems = S.kmItems.filter((x) => x.id !== id);
+    S.kmStats = await api(`/api/kpmatch/stats?project=${encodeURIComponent(S.kmProject)}`);
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+async function kmWhy(id) {
+  S.kmWhy[id] = '（正在请求解释…）'; render();
+  try {
+    const d = await api(`/api/kpmatch/why/${id}`, { body: {} });
+    S.kmWhy[id] = d.rationale + (d.degraded ? '　（模型不可用，已降级为确定性说明）' : '');
+  } catch (e) { S.kmWhy[id] = `解释失败：${e.message}（不影响候选本身）`; }
+  render();
+}
+
+async function viewKpmatch(body) {
+  await ensureKpmatch(false);
+  const st = S.kmStats || {};
+  body.append(h('div', { class: 'notice' },
+    '候选由确定性检索算出、大模型只写理由，',
+    h('b', {}, '采纳之后才写入正式映射表并署名 teacher'),
+    '。否决过的不会再出现。'));
+
+  body.append(h('div', { class: 'km-bar' },
+    h('div', {}, h('b', {}, `待审 ${st.pending ?? 0}`), ' 条',
+      h('span', { class: 'muted' }, `　已采纳 ${st.accepted ?? 0} · 已否决 ${st.rejected ?? 0}`,
+        st.accept_rate === null || st.accept_rate === undefined ? '　采纳率：尚无判决'
+          : `　采纳率 ${Math.round(st.accept_rate * 100)}%`)),
+    h('div', {},
+      h('select', { onchange: async (e) => {
+        S.kmProject = e.target.value; S.kmItems = null; await render();
+      } }, ...['PRJ-DAC', 'PRJ-AGV', 'PRJ-VIS'].map((c) =>
+        h('option', { value: c, selected: c === S.kmProject ? '' : null }, c))),
+      h('button', { onclick: async () => {
+        try {
+          const r = await api('/api/kpmatch/propose', { body: { project: S.kmProject } });
+          S.kmItems = null; await render();
+          alert(r.narrative || '已重新生成候选');
+        } catch (e) { alert(e.message); }
+      } }, '重新匹配'))));
+
+  if (!S.kmItems || !S.kmItems.length) {
+    body.append(h('div', { class: 'tw-soon' }, h('b', {}, '待审队列为空'),
+      '这个项目的候选都判完了。点「重新匹配」可在任务或图谱变动后再跑一遍。'));
+    return;
+  }
+
+  for (const it of S.kmItems.slice(0, 60)) {
+    body.append(h('div', { class: 'km-card' },
+      h('div', { class: 'km-head' },
+        h('div', {},
+          h('span', { class: 'km-task' }, `${it.task_code}　${it.task_name}`),
+          h('span', { class: 'km-arrow' }, ' 需要 → '),
+          h('b', {}, `${it.kp_code}　${it.kp_name}`)),
+        kmConfBadge(it.confidence)),
+      h('div', { class: 'km-ev' },
+        it.matcher === 'prereq-v1'
+          ? h('span', {}, '沿依赖边推出：', h('b', {}, (it.evidence || []).join('、')))
+          : h('span', {}, '命中证据：', h('b', {}, (it.evidence || []).join('、'))),
+        h('span', { class: 'muted' }, `　建议标为 ${it.necessity === 'required' ? '必需' : '有帮助'}`)),
+      S.kmWhy[it.id] ? h('div', { class: 'km-why' }, S.kmWhy[it.id]) : null,
+      h('div', { class: 'km-acts' },
+        h('button', { class: 'primary', onclick: () => kmDecide(it.id, 'accept') }, '采纳'),
+        h('button', { onclick: () => kmDecide(it.id, 'reject') }, '否决'),
+        h('button', { onclick: () => kmWhy(it.id) }, '为什么？'))));
+  }
+  if (S.kmItems.length > 60) {
+    body.append(h('div', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
+      `还有 ${S.kmItems.length - 60} 条未显示——一次审 60 条已经不少了，判完再刷新。`));
+  }
+}
+
 function viewSoon(body, label) {
   body.append(h('div', { class: 'tw-soon' },
     h('b', {}, `${label} · 即将上线`),
@@ -393,6 +491,7 @@ async function render() {
     if (S.view === 'syllabus') await viewSyllabus(body);
     else if (S.view === 'teaching_plan') await viewTeachingPlan(body);
     else if (S.view === 'deck') await viewDeck(body);
+    else if (S.view === 'kpmatch') await viewKpmatch(body);
     else viewSoon(body, NAV.flatMap((g) => g.items).find((i) => i.id === S.view)?.label || '');
   } catch (e) {
     body.append(h('div', { class: 'notice bad' }, `⚠ ${e.message}`));

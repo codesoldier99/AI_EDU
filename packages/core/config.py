@@ -60,6 +60,14 @@ class TeachingConfig:
     groundedness_threshold: float = 0.35
     # ---- 教师工作台 · 教学资产生成（见 packages/courseware）----
     # 授课计划切课：一次课最多覆盖多少个知识点，超出则拆成多次课
+    # ---- 知识点自动匹配（候选进待审队列，绝不直接生效）----
+    # 高线以上才敢标 required；低线以下连问都不问教师，省得队列被噪声淹掉。
+    kpmatch_required_conf: float = 0.62
+    kpmatch_min_conf: float = 0.30
+    kpmatch_top_k: int = 6
+    kpmatch_expand_top: int = 3      # 沿依赖边扩展前几名命中的前置知识点
+    kpmatch_expand_depth: int = 1    # 往上追几层（实测 1 层性价比最高）
+
     max_kp_per_session: int = 6
     # 课件生成：每张内容页最多保留多少条要点（express() 产出的文本会被裁到这个数量）
     deck_max_bullets_per_slide: int = 5

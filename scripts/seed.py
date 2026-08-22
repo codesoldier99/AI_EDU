@@ -23,6 +23,11 @@ from packages.state import repo as state_repo
 
 SEED = ROOT / "data" / "seed"
 
+# 多门课程 / 多个项目并存：新增一门课或一个项目就在这里加一行文件名。
+# 课程顺序有意义——跨课程前置边（如 DAC-05-10 依赖 ML-05-01）要求被引课先入库。
+COURSE_FILES = ["course_ml.yaml", "course_dac.yaml"]
+PROJECT_FILES = ["projects.yaml", "projects_dac.yaml"]
+
 
 def _yaml(path):
     import yaml
@@ -186,16 +191,20 @@ def main() -> None:
     print("→ 迁移数据库")
     db.migrate()
     if what in ("all", "course"):
-        r = seed_course()
-        print(f"→ 课程图谱：{r['kps']} 知识点 / {r['edges']} 依赖边 / {r['modules']} 能力模块")
-        if r["missing_prereqs"]:
-            print(f"  ⚠ 未识别的前置引用 {len(r['missing_prereqs'])} 处：{r['missing_prereqs'][:5]}")
-        print("  ✓ 环检测通过（依赖图为 DAG）")
+        for f in COURSE_FILES:
+            r = seed_course(f)
+            print(f"→ 课程图谱 {r['course']}：{r['kps']} 知识点 / {r['edges']} 依赖边 "
+                  f"/ {r['modules']} 能力模块")
+            if r["missing_prereqs"]:
+                print(f"  ⚠ 未识别的前置引用 {len(r['missing_prereqs'])} 处："
+                      f"{r['missing_prereqs'][:5]}")
+        print("  ✓ 环检测通过（含跨课程边，全图仍为 DAG）")
     if what in ("all", "projects"):
-        r = seed_projects()
-        print(f"→ 项目任务：{r['tasks']} 个任务 / {r['task_kp_links']} 条任务-知识点映射")
-        if r["unknown_kp_codes"]:
-            print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
+        for f in PROJECT_FILES:
+            r = seed_projects(f)
+            print(f"→ 项目任务 {f}：{r['tasks']} 个任务 / {r['task_kp_links']} 条任务-知识点映射")
+            if r["unknown_kp_codes"]:
+                print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
     if what in ("all", "kb"):
         r = seed_kb()
         print(f"→ 知识库：{sum(r.values())} 个文本块，来自 {len(r)} 个文件")
