@@ -48,6 +48,39 @@ class TestProgramModel(DBTestCase):
         self.assertEqual(g.course_for_code("ML-07")["code"], "C-ML")
 
 
+class TestCourseMerge(DBTestCase):
+    """课程代码合并：换正式代码不该毁掉教师已有的产出。
+
+    服务器上真踩过：ML 底下挂着一份教学大纲，直接 DELETE 撞外键——
+    撞对了。那份大纲不该跟着旧代码一起消失。
+    """
+
+    def test_merge_moves_syllabus_instead_of_deleting(self):
+        old_id = g.upsert_course("ML", "机器学习原理与应用", 4.0, "3")
+        new_id = g.upsert_course("G18Z21022", "机器学习", 3.0, "2")
+        self.db.execute(
+            "INSERT INTO syllabus(course_id, version, status, content_json, created_by,"
+            " created_at) VALUES(?,?,?,?,?,?)",
+            (old_id, 1, "teacher_confirmed", "{}", "T001", "2026-08-01T00:00:00"))
+
+        r = g.merge_course("ML", "G18Z21022")
+        self.assertTrue(r["merged"])
+        self.assertEqual(r["moved"].get("syllabus"), 1, "教学大纲没有被迁移")
+        self.assertIsNone(g.get_course("ML"))
+        self.assertEqual(
+            self.db.scalar("SELECT COUNT(*) FROM syllabus WHERE course_id=?", (new_id,)), 1)
+
+    def test_merge_refuses_while_kps_remain(self):
+        """知识点还没移交完就合并，等于把它们连根删掉。"""
+        old_id = g.upsert_course("ML", "机器学习原理与应用", 4.0, "3")
+        g.upsert_course("G18Z21022", "机器学习", 3.0, "2")
+        g.upsert_kp(old_id, "ML-01-01", "还没移交的知识点")
+        r = g.merge_course("ML", "G18Z21022")
+        self.assertFalse(r["merged"])
+        self.assertEqual(r["kps_left"], 1)
+        self.assertIsNotNone(g.get_course("ML"), "拒绝合并后源课程不该消失")
+
+
 class TestReattributionKeepsEvidence(DBTestCase):
     """归属移交只改 course_id，不动知识点 id —— 因此证据一条不少。
 

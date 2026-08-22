@@ -37,14 +37,39 @@ def list_courses() -> list[dict]:
     return get_db().query("SELECT * FROM course ORDER BY id")
 
 
-def delete_course(course_id: int) -> None:
-    """删除空壳课程。只在知识点已全部移交后调用（seed_program 会先核对）。"""
+# 除 knowledge_point 外，还引用 course(id) 的表。合并课程时要一并改指向，
+# 否则删的时候会撞外键——更糟的是，若强行删掉，教师写的大纲就没了。
+_COURSE_REFS = ("syllabus",)
+
+
+def merge_course(from_code: str, into_code: str) -> dict:
+    """把旧课程代码合并进新代码：同一门课，只是换成了培养方案里的正式代码。
+
+    **不是删除，是改指向。** 服务器上曾经出现过：ML 这门课底下挂着教师写的
+    教学大纲，直接 DELETE 会撞外键（撞对了——那份大纲不该跟着代码一起消失）。
+    所以先把引用它的记录改指向新课程，确认知识点已全部移交，才删掉空壳行。
+    """
     db = get_db()
-    if db.scalar("SELECT COUNT(*) FROM knowledge_point WHERE course_id=?", (course_id,)):
-        raise ValueError("课程仍有知识点，不能删除")
-    db.execute("DELETE FROM program_course WHERE course_id=?", (course_id,))
-    db.execute("DELETE FROM course_prefix WHERE course_id=?", (course_id,))
-    db.execute("DELETE FROM course WHERE id=?", (course_id,))
+    src, dst = get_course(from_code), get_course(into_code)
+    if not src:
+        return {"merged": False, "reason": f"源课程不存在：{from_code}"}
+    if not dst:
+        return {"merged": False, "reason": f"目标课程不存在：{into_code}"}
+    left = db.scalar("SELECT COUNT(*) FROM knowledge_point WHERE course_id=?", (src["id"],))
+    if left:
+        return {"merged": False, "reason": f"仍有 {left} 个知识点未移交", "kps_left": left}
+
+    moved = {}
+    for tbl in _COURSE_REFS:
+        n = db.scalar(f"SELECT COUNT(*) FROM {tbl} WHERE course_id=?", (src["id"],)) or 0
+        if n:
+            db.execute(f"UPDATE {tbl} SET course_id=? WHERE course_id=?",
+                       (dst["id"], src["id"]))
+            moved[tbl] = n
+    db.execute("DELETE FROM program_course WHERE course_id=?", (src["id"],))
+    db.execute("DELETE FROM course_prefix WHERE course_id=?", (src["id"],))
+    db.execute("DELETE FROM course WHERE id=?", (src["id"],))
+    return {"merged": True, "from": from_code, "into": into_code, "moved": moved}
 
 
 # ---------------- 培养方案 ----------------
@@ -141,7 +166,7 @@ def close_built_demands() -> int:
 def demand_queue(project_code: str | None = None) -> list[dict]:
     """按"被多少处需求"排序的建设队列 —— 下一门课该先建哪几个点。
 
-    这是拉取式图谱建设的输出：40 门课不必平均用力，
+    这是拉取式图谱建设的输出：整个培养方案不必平均用力，
     被 3 个项目拉过的 20 个知识点，比没人拉的 300 个更该先建。
     """
     sql = ("SELECT code, course_code, COUNT(*) AS demands,"

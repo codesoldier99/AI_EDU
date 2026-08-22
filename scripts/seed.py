@@ -76,27 +76,24 @@ def seed_program(file: str = "program_ai_zsb.yaml") -> dict:
             "total_credit": total}
 
 
-def retire_empty_courses(file: str = "program_ai_zsb.yaml") -> list[str]:
-    """删掉知识点已全部移交出去的空壳课程。
+def merge_legacy_courses(file: str = "program_ai_zsb.yaml") -> list[str]:
+    """把旧课程代码合并进培养方案里的正式代码。
 
-    **必须在课程图谱导入之后调用**——移交是 seed_course 干的，
-    在那之前 ML 还挂着 183 个知识点，看上去"非空"。
-    只删确实一个知识点都不剩的，剩一个都不动：宁可留个空壳，
-    也不能把还有人引用的课删掉。
+    **必须在课程图谱导入之后调用**——移交归属是 seed_course 干的，
+    在那之前 ML 还挂着 183 个知识点，合并会被拒。
     """
     data = _yaml(SEED / file)
-    retired = []
-    for code in data.get("retire_courses", []):
-        c = repo.get_course(code)
-        if not c:
-            continue
-        left = repo.list_kps(c["id"])
-        if left:
-            print(f"  ⚠ 课程 {code} 仍有 {len(left)} 个知识点，未退役（归属尚未全部移交）")
-            continue
-        repo.delete_course(c["id"])
-        retired.append(code)
-    return retired
+    done = []
+    for row in data.get("merge_courses", []):
+        src, dst = [x.strip() for x in str(row).split(">")]
+        r = repo.merge_course(src, dst)
+        if r["merged"]:
+            extra = ("，同时迁移 " + "、".join(f"{k} {v} 条" for k, v in r["moved"].items())
+                     if r.get("moved") else "")
+            done.append(f"{src} → {dst}{extra}")
+        elif r.get("kps_left"):
+            print(f"  ⚠ {src} 仍有 {r['kps_left']} 个知识点未移交，未合并")
+    return done
 
 
 def _ensure_course(code: str, unit_name: str) -> int:
@@ -301,9 +298,9 @@ def main() -> None:
                 print(f"  → 前置引用了 {len(r['missing_prereqs'])} 个尚未建的知识点，"
                       f"已登记进需求队列（make demand 查看）")
         print("  ✓ 环检测通过（含跨课程边，全图仍为 DAG）")
-        retired = retire_empty_courses(PROGRAM_FILE)
-        if retired:
-            print(f"  ✓ 已退役空壳课程：{'、'.join(retired)}（知识点已全部移交给培养方案课程）")
+        merged = merge_legacy_courses(PROGRAM_FILE)
+        for m in merged:
+            print(f"  ✓ 课程代码合并：{m}")
     if what in ("all", "projects"):
         for f in PROJECT_FILES:
             r = seed_projects(f)
