@@ -158,6 +158,76 @@ class TestDemandQueue(DBTestCase):
         self.assertEqual(q[0]["course_code"], "")
 
 
+class TestPracticeBinding(DBTestCase):
+    """集中实践环节：项目专有知识的学分载体。
+
+    一个真实项目里总有一部分知识（这台设备的触发时序、这个盘的孔位编号）
+    在任何理论课大纲里都没有。硬塞进某门理论课凑覆盖度会毁掉认定的可信度；
+    但学生确实做了，也不该白做——培养方案里的集中实践环节就是承接它的地方。
+    """
+
+    def _setup(self):
+        pid = g.upsert_program("P-TEST", "测试培养方案")
+        theory = g.upsert_course("C-TH", "某理论课", 3.0, "1")
+        practice = g.upsert_course("C-PR", "专业综合实习", 3.0, "3")
+        g.link_program_course(pid, theory, "专业核心", 1, 3.0, 48, "考试", 0)
+        g.link_program_course(pid, practice, "集中实践", 3, 3.0, 0, "考查", 1)
+        # 项目知识域：**不**登记进 program_course，所以它不属于任何培养方案课程
+        domain = g.upsert_course("DOM", "某项目知识域", 0, "")
+        proj = g.upsert_project("PRJ-X", "某项目", "test", "none")
+        task = g.upsert_task(proj, "T-X-1", "任务一", None, 1, 0)
+        for i in range(3):
+            kp = g.upsert_kp(domain, f"DOM-{i:02d}", f"项目专有知识{i}")
+            g.link_task_kp(task, kp, "required", "teacher")
+        return theory, practice
+
+    def test_domain_kps_are_identified_as_project_only(self):
+        self._setup()
+        self.assertEqual(len(g.project_domain_kp_ids("PRJ-X")), 3)
+
+    def test_unbound_domain_kps_count_toward_nothing(self):
+        """没绑定实践环节时，项目专有知识不该悄悄算进任何一门课。"""
+        theory, practice = self._setup()
+        m = coverage.program_map("P-TEST", "PRJ-X")
+        by = {r["course_code"]: r for r in m["courses"]}
+        self.assertEqual(by["C-TH"]["kps_built"], 0)
+        self.assertEqual(by["C-PR"]["kps_built"], 0)
+        self.assertEqual(m["project_only_kps"], 3)
+        self.assertEqual(m["practice_course"], "", "未绑定却报出了实践课程")
+
+    def test_binding_routes_domain_kps_to_the_practice_course(self):
+        self._setup()
+        self.assertTrue(g.bind_practice("PRJ-X", "C-PR")["ok"])
+        m = coverage.program_map("P-TEST", "PRJ-X")
+        by = {r["course_code"]: r for r in m["courses"]}
+        self.assertEqual(by["C-PR"]["kps_built"], 3, "实践课没有承接项目专有知识")
+        self.assertEqual(by["C-TH"]["kps_built"], 0, "项目专有知识漏进了理论课")
+        self.assertEqual(m["practice_course"], "C-PR")
+
+    def test_a_project_binds_to_only_one_practice_course(self):
+        """绑两门就等于同一份工作认两次学分。"""
+        self._setup()
+        other = g.upsert_course("C-PR2", "另一门实践课", 2.0, "3")
+        g.link_program_course(g.get_program("P-TEST")["id"], other,
+                              "集中实践", 3, 2.0, 0, "考查", 2)
+        g.bind_practice("PRJ-X", "C-PR")
+        g.bind_practice("PRJ-X", "C-PR2")      # 主键约束：后者覆盖前者，不是并存
+        self.assertEqual(len(g.list_practice_bindings()), 1)
+        self.assertEqual(g.practice_course_of("PRJ-X")["code"], "C-PR2")
+
+    def test_practice_credit_still_requires_milestone_signoff(self):
+        """实践环节的学分不能只看知识点覆盖度——系统给事实，签字仍是教师的事。"""
+        self._setup()
+        g.bind_practice("PRJ-X", "C-PR")
+        s = self.db.execute(
+            "INSERT INTO student(sid,name,cohort,klass,enrolled_at)"
+            " VALUES('S9','某生','2026','实验班A','2026-08-01T00:00:00')")
+        row = {c.course_code: c for c in coverage.program_coverage("P-TEST", s)}["C-PR"]
+        self.assertEqual(row.via_projects, ["PRJ-X"])
+        self.assertIn("里程碑", row.caveat)
+        self.assertIn("系统不代签", row.caveat)
+
+
 class TestCreditRecognition(DBTestCase):
     """学分认定：两道闸，且拿不准时明说"判不了"。"""
 

@@ -61,6 +61,7 @@ class CourseCoverage(Message):
     validated: int = 0
     coverage: float = 0.0       # 已验证掌握 / 已建知识点
     credit_eligible: bool = False
+    via_projects: list = field(default_factory=list)  # 经哪些项目折算（集中实践环节）
     caveat: str = ""
 
 
@@ -101,22 +102,32 @@ def program_map(program_code: str, project_code: str | None = None) -> dict:
     for kp in graph_repo.list_kps():
         kp_course[kp.id] = kp.course_id
 
+    plan_ids = {c["course_id"] for c in courses}
+    # 项目专有知识：不属于培养方案任何一门理论课。
+    # 它们不该被硬塞进某门理论课凑覆盖度，但经**集中实践环节绑定**可以折算学分。
+    project_only_ids = {k for k in (direct | indirect) if kp_course.get(k) not in plan_ids}
+
     rows: list[dict] = []
     for c in courses:
         cid = c["course_id"]
+        bound = graph_repo.practice_projects_of(cid)
+        # 实践课程承接被绑定项目的项目专有知识，计入它的"已建"
+        via = len(project_only_ids) if (bound and project_code in bound) else 0
         rows.append({
             "course_code": c["code"], "course_name": c["name"], "module": c["module"],
-            "semester": c["semester"], "credit": c["credit"], "kps_built": c["kps"],
+            "semester": c["semester"], "credit": c["credit"],
+            "kps_built": c["kps"] + via,
             "pulled_direct": sum(1 for k in direct if kp_course.get(k) == cid),
             "pulled_via_prereq": sum(1 for k in indirect if kp_course.get(k) == cid),
             "demanded": demand.get(c["code"], 0),
+            "via_practice": via,
         })
     for r in rows:
-        r["touched"] = bool(r["pulled_direct"] or r["pulled_via_prereq"] or r["demanded"])
+        r["touched"] = bool(r["pulled_direct"] or r["pulled_via_prereq"]
+                            or r["demanded"] or r["via_practice"])
 
-    # 项目专有知识：不属于培养方案任何一门课，因此不折算学分。如实显示，不硬凑。
-    plan_ids = {c["course_id"] for c in courses}
-    project_only = sum(1 for k in (direct | indirect) if kp_course.get(k) not in plan_ids)
+    project_only = len(project_only_ids)
+    practice_course = graph_repo.practice_course_of(project_code) if project_code else None
 
     return {
         "program": program_code,
@@ -128,6 +139,8 @@ def program_map(program_code: str, project_code: str | None = None) -> dict:
         "n_empty_but_needed": sum(1 for r in rows if r["touched"] and not r["kps_built"]),
         "pulled_total": len(direct) + len(indirect),
         "project_only_kps": project_only,
+        "practice_course": practice_course["code"] if practice_course else "",
+        "practice_course_name": practice_course["name"] if practice_course else "",
         "demand_open": sum(demand.values()),
     }
 
@@ -152,8 +165,19 @@ def program_coverage(program_code: str, student_id: int) -> list[CourseCoverage]
     out: list[CourseCoverage] = []
     for c in graph_repo.program_courses(program_code):
         kps = graph_repo.list_kps(c["course_id"])
-        built = len(kps)
         ids = {k.id for k in kps}
+
+        # 集中实践环节：承接被绑定项目的**项目专有知识**。
+        # 那些知识点（DMD 结构光、这台设备的触发时序）不属于任何理论课，
+        # 但学生确实做了，学分该落在实践环节上——理由见 program_ai_zsb.yaml。
+        bound = graph_repo.practice_projects_of(c["course_id"])
+        via_project: list[str] = []
+        for proj in bound:
+            extra = set(graph_repo.project_domain_kp_ids(proj))
+            if extra - ids:
+                via_project.append(proj)
+            ids |= extra
+        built = len(ids)
         mastered = sum(1 for i in ids if mastery.get(i, 0.0) >= thr)
         validated = len(ids & validated_ids)
         cov = round(validated / built, 3) if built else 0.0
@@ -161,6 +185,7 @@ def program_coverage(program_code: str, student_id: int) -> list[CourseCoverage]
             course_code=c["code"], course_name=c["name"], module=c["module"],
             semester=c["semester"], credit=c["credit"], kps_built=built,
             mastered=mastered, validated=validated, coverage=cov,
+            via_projects=via_project,
         )
         # 认定资格有两道闸，缺一不可：
         #   ① 图谱建够了吗——只建了 3 个点时说"覆盖 33%"是假精度，
@@ -175,6 +200,13 @@ def program_coverage(program_code: str, student_id: int) -> list[CourseCoverage]
             cc.credit_eligible = cov >= min_cov
             if not cc.credit_eligible:
                 cc.caveat = f"覆盖度未达 {min_cov:.0%}"
+        if via_project:
+            # 实践环节的学分不能只看知识点覆盖度：里程碑验收是必须的。
+            # 系统给出覆盖度这一项事实，签字仍然是教师的事——不替教师下结论。
+            ms = sum(graph_repo.project_milestones(pj)["milestones"] for pj in via_project)
+            cc.caveat = (f"经项目 {'、'.join(via_project)} 折算；"
+                         f"另需 {ms} 个里程碑通过导师验收，系统不代签" +
+                         (f"；{cc.caveat}" if cc.caveat else ""))
         out.append(cc)
     return out
 

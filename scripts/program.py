@@ -52,8 +52,14 @@ def cmd_map(argv: list[str]) -> None:
     print(f"\n  ★ = 该项目触及到的课程：{m['n_touched']} / {m['n_courses']} 门")
     print(f"  已建图谱的课程：{m['n_built']} 门；"
           f"**被需要但一个知识点都还没建**的课程：{m['n_empty_but_needed']} 门")
-    print(f"  项目拉取的知识点合计：{m['pulled_total']} 个"
-          f"（其中 {m['project_only_kps']} 个属于项目专有知识，不折算学分）")
+    if m.get("practice_course"):
+        print(f"  项目拉取的知识点合计：{m['pulled_total']} 个"
+              f"（其中 {m['project_only_kps']} 个属于项目专有知识，"
+              f"经「{m['practice_course_name']} {m['practice_course']}」折算学分）")
+    else:
+        print(f"  项目拉取的知识点合计：{m['pulled_total']} 个"
+              f"（其中 {m['project_only_kps']} 个属于项目专有知识，"
+              f"**未绑定实践环节，不折算学分**）")
     print(f"  悬空需求：{m['demand_open']} 个知识点待建\n")
     print("  这张表的读法：0 不是没做完，是还没有项目拉取过它。")
     print("  下一步该建哪门课的哪几个点 → python3 scripts/program.py demand")
@@ -108,11 +114,14 @@ def cmd_coverage(argv: list[str]) -> None:
         if c.credit_eligible:
             eligible += c.credit
         name = (c.course_name[:12] + "…") if len(c.course_name) > 13 else c.course_name
-        print(f"  {c.course_code:11s}{name:15s} {c.kps_built:>4d} {c.validated:>5d} "
+        tag = "◆" if c.via_projects else " "
+        print(f" {tag}{c.course_code:11s}{name:15s} {c.kps_built:>4d} {c.validated:>5d} "
               f"{c.coverage:>6.0%} {c.credit:>4.1f}   {mark}   {c.caveat}")
     print("  " + "─" * 92)
     n_empty = sum(1 for c in rows if not c.kps_built)
     print(f"\n  可认定学分合计：{eligible:.1f}")
+    if any(c.via_projects for c in rows):
+        print("  ◆ = 集中实践环节，承接项目专有知识（不属于任何理论课，但学生确实做了）")
     print(f"  另有 {n_empty} 门课图谱尚未建设，无法认定——"
           f"这不是学生没学，是系统还没建那门课的坐标系。")
     print("\n  提醒：覆盖度的分子只算「已验证掌握」（跨时间再次做对），不算当堂做对。")

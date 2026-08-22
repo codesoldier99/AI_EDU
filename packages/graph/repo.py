@@ -140,6 +140,65 @@ def course_for_code(kp_code: str) -> dict | None:
     return best
 
 
+# ---------------- 集中实践环节绑定 ----------------
+def bind_practice(project_code: str, course_code: str, note: str = "") -> dict:
+    """把一个项目绑到一门集中实践课程上，作为其项目专有知识的学分载体。
+
+    一个项目只能绑一门（主键约束）——否则同一份工作会在两门课里各认一次学分。
+    """
+    db = get_db()
+    c = get_course(course_code)
+    if not c:
+        return {"ok": False, "reason": f"课程不存在：{course_code}"}
+    db.execute(
+        "INSERT OR REPLACE INTO practice_binding(project_code, course_id, note, created_at)"
+        " VALUES(?,?,?,?)", (project_code, c["id"], note, now_str()))
+    return {"ok": True, "project": project_code, "course": course_code}
+
+
+def practice_projects_of(course_id: int) -> list[str]:
+    """这门实践课承接了哪些项目。"""
+    return [r["project_code"] for r in get_db().query(
+        "SELECT project_code FROM practice_binding WHERE course_id=?", (course_id,))]
+
+
+def practice_course_of(project_code: str) -> dict | None:
+    row = get_db().query_one(
+        "SELECT c.* FROM practice_binding b JOIN course c ON c.id=b.course_id"
+        " WHERE b.project_code=?", (project_code,))
+    return row
+
+
+def list_practice_bindings() -> list[dict]:
+    return get_db().query(
+        "SELECT b.project_code, c.code AS course_code, c.name AS course_name, b.note"
+        " FROM practice_binding b JOIN course c ON c.id=b.course_id"
+        " ORDER BY b.project_code")
+
+
+def project_domain_kp_ids(project_code: str) -> list[int]:
+    """项目专有知识点：该项目用到、但不属于培养方案任何一门课的知识点。
+
+    判据是"归属课程没出现在任何培养方案里"——即 project_domains 声明的知识域。
+    """
+    return [r["id"] for r in get_db().query(
+        "SELECT DISTINCT k.id FROM task_kp_link l"
+        " JOIN project_task t ON t.id=l.task_id"
+        " JOIN project p ON p.id=t.project_id"
+        " JOIN knowledge_point k ON k.id=l.kp_id"
+        " WHERE p.code=? AND k.course_id NOT IN"
+        " (SELECT course_id FROM program_course)", (project_code,))]
+
+
+def project_milestones(project_code: str) -> dict:
+    """项目里程碑数量——实践环节验收的事实依据之一。"""
+    db = get_db()
+    total = db.scalar(
+        "SELECT COUNT(*) FROM project_task t JOIN project p ON p.id=t.project_id"
+        " WHERE p.code=? AND t.milestone=1", (project_code,)) or 0
+    return {"milestones": total}
+
+
 # ---------------- 悬空知识点需求（拉取式图谱建设） ----------------
 def add_demand(kp_code: str, demanded_by: str, project_code: str = "",
                kind: str = "task_required") -> bool:
@@ -307,6 +366,10 @@ def upsert_module(code: str, name: str, description: str = "") -> int:
         "INSERT INTO ability_module(code, name, description) VALUES(?,?,?)",
         (code, name, description),
     )
+
+
+def get_module_by_code(code: str) -> dict | None:
+    return get_db().query_one("SELECT * FROM ability_module WHERE code=?", (code,))
 
 
 def list_modules() -> list[AbilityModule]:

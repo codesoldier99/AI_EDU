@@ -26,7 +26,20 @@ SEED = ROOT / "data" / "seed"
 # 多门课程 / 多个项目并存：新增一门课或一个项目就在这里加一行文件名。
 # 课程顺序有意义——跨课程前置边（如 DAC-05-10 依赖 ML-05-01）要求被引课先入库。
 PROGRAM_FILE = "program_ai_zsb.yaml"
-COURSE_FILES = ["course_ml.yaml", "course_dac.yaml"]
+# 顺序有意义：跨课程前置边要求被引课先入库。
+# 数学在前（被所有课引用），领域课在后，项目知识域最后。
+COURSE_FILES = [
+    "course_ml.yaml",       # 机器学习 + 移交给数学三门与深度学习的章节
+    "course_la.yaml",       # 线性代数A（补齐移交过来的 5 个点的上下文）
+    "course_prob.yaml",     # 概率论与数理统计A
+    "course_py.yaml",       # Python 语言程序设计
+    "course_dsa.yaml",      # 算法与数据结构
+    "course_oop.yaml",      # 面向对象程序设计
+    "course_coa.yaml",      # 计算机组成原理
+    "course_db.yaml",       # 数据库与向量数据库
+    "course_eps.yaml",      # 具身感知与多传感器融合（引用 LA / PROB）
+    "course_dac.yaml",      # DAC-3D 项目知识域
+]
 PROJECT_FILES = ["projects.yaml", "projects_dac.yaml"]
 
 
@@ -71,9 +84,20 @@ def seed_program(file: str = "program_ai_zsb.yaml") -> dict:
         repo.upsert_course(code, name, 0, "")
         n_dom += 1
 
+    # 集中实践环节绑定：项目专有知识的学分载体
+    n_bind = 0
+    for row in data.get("practice_bindings", []):
+        head, _, note = str(row).partition("|")
+        src, dst = [x.strip() for x in head.split(">")]
+        r = repo.bind_practice(src, dst, note.strip())
+        if r["ok"]:
+            n_bind += 1
+        else:
+            print(f"  ⚠ 实践绑定失败：{r['reason']}")
+
     total = repo.program_credit_total(pid)
     return {"program": p["code"], "courses": n, "domains": n_dom,
-            "total_credit": total}
+            "practice_bindings": n_bind, "total_credit": total}
 
 
 def merge_legacy_courses(file: str = "program_ai_zsb.yaml") -> list[str]:
@@ -122,10 +146,23 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
     c = data["course"]
     course_id = repo.upsert_course(c["code"], c["name"], c.get("credit", 0), str(c.get("term", "")))
 
+    # 能力模块 M1–M8 是**全局**的，不该要求每个课程文件重复声明一遍。
+    # 文件里声明了就 upsert（第一门课负责建），没声明就按代码到库里找。
+    # 不这么写，后建的课程文件里那列 `M1,M6` 会被静默丢弃——
+    # 知识点照样入库、看不出任何异常，只是能力画像里少了一大片。
     mod_ids = {}
     for m in data.get("modules", []):
         code, name, desc = (m + ["", "", ""])[:3] if isinstance(m, list) else (m, m, "")
         mod_ids[code] = repo.upsert_module(code, name, desc)
+
+    def _module_id(code: str) -> int | None:
+        if code in mod_ids:
+            return mod_ids[code]
+        row = repo.get_module_by_code(code)
+        if row:
+            mod_ids[code] = row["id"]
+            return row["id"]
+        return None
 
     rows: list[tuple] = []
     for unit in data["units"]:
@@ -142,6 +179,7 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
 
     # 第一遍：建节点
     owners: set[int] = set()
+    unknown_modules: set[str] = set()
     for unit, code, name, ktype, diff, mods, _pre, brief, owner in rows:
         owners.add(owner)
         kp_id = repo.upsert_kp(
@@ -149,8 +187,11 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
             float(diff or 0.5), unit,
         )
         for mc in [x.strip() for x in mods.split(",") if x.strip()]:
-            if mc in mod_ids:
-                repo.link_kp_module(kp_id, mod_ids[mc], 1.0)
+            mid = _module_id(mc)
+            if mid:
+                repo.link_kp_module(kp_id, mid, 1.0)
+            else:
+                unknown_modules.add(mc)
 
     # 第二遍：建依赖边
     n_edges, missing = 0, []
@@ -174,6 +215,7 @@ def seed_course(file: str = "course_ml.yaml") -> dict:
     repo.close_built_demands()
     return {"course": c["code"], "kps": len(rows), "edges": n_edges,
             "missing_prereqs": missing, "modules": len(mod_ids),
+            "unknown_modules": sorted(unknown_modules),
             "owner_courses": len(owners)}
 
 
@@ -288,12 +330,15 @@ def main() -> None:
     if what in ("all", "program"):
         r = seed_program(PROGRAM_FILE)
         print(f"→ 培养方案 {r['program']}：{r['courses']} 门课 / 合计 {r['total_credit']} 学分"
-              f"（另有 {r['domains']} 个项目知识域，不折算学分）")
+              f"（另有 {r['domains']} 个项目知识域，经 {r['practice_bindings']} 条"
+              f"实践环节绑定折算学分）")
     if what in ("all", "course"):
         for f in COURSE_FILES:
             r = seed_course(f)
             print(f"→ 课程图谱 {r['course']}：{r['kps']} 知识点 / {r['edges']} 依赖边 "
                   f"/ {r['modules']} 能力模块")
+            if r["unknown_modules"]:
+                print(f"  ⚠ 未知的能力模块代码：{r['unknown_modules']}（这些挂接被丢弃了）")
             if r["missing_prereqs"]:
                 print(f"  → 前置引用了 {len(r['missing_prereqs'])} 个尚未建的知识点，"
                       f"已登记进需求队列（make demand 查看）")
