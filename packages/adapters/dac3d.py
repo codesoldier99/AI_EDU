@@ -191,11 +191,12 @@ class DAC3DAdapter:
         子任务与清单小节的对齐，复用的是同一个 lexmatch——
         用哪把尺子量任务，就用哪把尺子对齐语料，免得两处判断打架。
         """
-        if not self.available:
-            return {}
-        sections = self._curriculum_sections()
+        sections = self._curriculum_sections() if self.available else {}
         if not sections:
-            return {}
+            # 活仓库不在（教学服务器上通常如此）→ 回落到快照。
+            # 快照由 scripts/snapshot_corpus.py 生成并入库，只含教师写的验收清单，
+            # 不含代码与图纸。没有它，服务器上的匹配会掉回"只用任务名"的水平。
+            return self._corpus_snapshot()
 
         from packages.graph import repo as graph_repo
         from packages.tools.lexmatch import Doc, Index
@@ -223,6 +224,17 @@ class DAC3DAdapter:
                 # 对不上就退回整关语料：宁可粗一点，也不能因为对齐失败就没有语料
                 corpus[t.code] = groups[hits[0].key]["text"] if hits else sec["full"]
         return corpus
+
+    def _corpus_snapshot(self) -> dict[str, str]:
+        f = ROOT / "data" / "adapters" / "dac3d_corpus.json"
+        if not f.exists():
+            return {}
+        import json
+
+        try:
+            return json.loads(f.read_text(encoding="utf-8")).get("corpus") or {}
+        except Exception:
+            return {}
 
     def _curriculum_sections(self) -> dict[str, dict]:
         """解析 docs/dac3d-lab-curriculum.md 的六道关卡。"""

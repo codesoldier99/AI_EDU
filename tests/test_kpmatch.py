@@ -184,5 +184,32 @@ class TestDAC3DAdapter(DBTestCase):
         self.assertEqual(sorted(self.ad._curriculum_sections()), ["1", "2", "3", "4", "5", "6"])
 
 
+class TestCorpusSnapshotFallback(DBTestCase):
+    """教学服务器上没有产业项目源码，语料必须回落到快照。
+
+    没有这条回落，服务器上的匹配会悄悄掉回"只用任务名"的水平——
+    不报错、不告警，只是召回率变差，是最难发现的那种退化。
+    """
+
+    def test_missing_repo_falls_back_to_snapshot(self):
+        from packages.adapters.dac3d import DAC3DAdapter
+
+        ad = DAC3DAdapter(repo_path="/nonexistent/repo")
+        self.assertFalse(ad.available)
+        self.assertEqual(ad.collect(), [], "仓库不在却产出了信号")
+        self.assertTrue(ad.task_corpus(), "仓库不在时没有回落到语料快照")
+
+    def test_snapshot_is_in_repo_and_covers_tasks(self):
+        import json
+
+        from packages.core.config import ROOT
+
+        f = ROOT / "data" / "adapters" / "dac3d_corpus.json"
+        self.assertTrue(f.exists(), "语料快照未入库，服务器上会退化")
+        corpus = json.loads(f.read_text(encoding="utf-8"))["corpus"]
+        self.assertGreaterEqual(len(corpus), 30)
+        self.assertTrue(all(k.startswith("T-DAC-") for k in corpus))
+
+
 if __name__ == "__main__":
     unittest.main()
