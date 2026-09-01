@@ -60,6 +60,7 @@ const NAV = [
   ] },
   { group: '项目制教学', items: [
     { id: 'kpmatch', label: '映射审核', icon: '🔗', ready: true },
+    { id: 'workflow', label: '统一待审', icon: '📋', ready: true },
   ] },
   { group: '学情与评价', items: [
     { id: 'grading', label: '评卷', icon: '✅', ready: false },
@@ -476,6 +477,61 @@ function viewSoon(body, label) {
     '这一块正在按同一套「确定性计算 + 大模型只表达」的方式建设，敬请期待。'));
 }
 
+// ---------------------------------------------------------------- 统一待审队列（RBAC + workflow）
+async function ensureWorkflow(force) {
+  if (S.wfItems && !force) return;
+  await api('/api/workflow/sync', { body: {} });
+  const d = await api('/api/workflow/queue?state=open&limit=100');
+  S.wfItems = d.items; S.wfStats = d.stats;
+}
+
+async function wfAct(id, action) {
+  try {
+    await api(`/api/workflow/items/${id}/act`, { body: { action } });
+    S.wfItems = null;
+    await ensureWorkflow(true);
+    render();
+  } catch (e) { alert(e.message); }
+}
+
+async function viewWorkflow(body) {
+  await ensureWorkflow(false);
+  const st = S.wfStats || {};
+  body.append(h('div', { class: 'notice' },
+    '统一待审覆盖题库草案 / 映射候选 / 审查发现 / 错误模式 / 人工判分。',
+    '业务真相仍在原表；这里只做排队、认领与审计。'));
+  body.append(h('div', { class: 'km-bar' },
+    h('div', {}, h('b', {}, `开放 ${st.open ?? 0}`), ' 项'),
+    h('div', {},
+      h('button', { onclick: async () => { S.wfItems = null; await ensureWorkflow(true); render(); } }, '重新同步'),
+    )));
+  const items = S.wfItems || [];
+  if (!items.length) {
+    body.append(h('div', { class: 'tw-soon' }, '当前没有待审项。'));
+    return;
+  }
+  body.append(h('table', { class: 'tw-table' },
+    h('thead', {}, h('tr', {},
+      h('th', {}, '种类'), h('th', {}, '标题'), h('th', {}, '状态'), h('th', {}, '操作'))),
+    h('tbody', {}, ...items.map((it) => h('tr', {},
+      h('td', {}, it.label || it.kind),
+      h('td', {}, it.title || `#${it.id}`),
+      h('td', {}, it.state),
+      h('td', {},
+        it.state === 'pending_review'
+          ? h('button', { onclick: () => wfAct(it.id, 'claim') }, '认领')
+          : null,
+        ['pending_review', 'claimed'].includes(it.state)
+          ? h('button', { class: 'primary', onclick: () => wfAct(it.id, 'approve') }, '通过')
+          : null,
+        ['pending_review', 'claimed'].includes(it.state)
+          ? h('button', { onclick: () => wfAct(it.id, 'reject') }, '否决')
+          : null,
+      ),
+    ))),
+  ));
+}
+
 // ---------------------------------------------------------------- 壳
 async function render() {
   document.body.innerHTML = '';
@@ -492,6 +548,7 @@ async function render() {
     else if (S.view === 'teaching_plan') await viewTeachingPlan(body);
     else if (S.view === 'deck') await viewDeck(body);
     else if (S.view === 'kpmatch') await viewKpmatch(body);
+    else if (S.view === 'workflow') await viewWorkflow(body);
     else viewSoon(body, NAV.flatMap((g) => g.items).find((i) => i.id === S.view)?.label || '');
   } catch (e) {
     body.append(h('div', { class: 'notice bad' }, `⚠ ${e.message}`));
@@ -499,16 +556,22 @@ async function render() {
 }
 
 async function boot() {
-  if (!S.token || !S.token.startsWith('teacher:')) {
+  const okPrefix = S.token && (
+    S.token.startsWith('teacher:') || S.token.startsWith('admin:') || S.token.startsWith('session:')
+  );
+  if (!okPrefix) {
     document.body.innerHTML = '';
     document.body.append(h('div', { class: 'tw-soon', style: 'margin:60px auto;max-width:480px' },
-      h('b', {}, '该工作台仅限教师访问'),
-      '请先在主界面用教师身份登录后再进入。',
+      h('b', {}, '该工作台仅限教师 / 教务访问'),
+      '请先在主界面用教师身份登录（teacher:… / admin:…），或 POST /api/auth/login 换 session:… 后再进入。',
       h('div', { style: 'margin-top:14px' }, h('a', { href: '/' }, h('button', { class: 'primary' }, '返回主界面')))));
     return;
   }
   try {
     S.me = await api('/api/whoami');
+    if (!['teacher', 'ta', 'admin'].includes(S.me.role)) {
+      throw new Error('需要教师或教务角色');
+    }
   } catch (e) {
     localStorage.removeItem('aiedu.token');
     location.href = '/';

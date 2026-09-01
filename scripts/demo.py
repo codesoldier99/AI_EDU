@@ -329,6 +329,8 @@ def main() -> None:
 
     print("\n演示数据就绪。")
     print("  教师端令牌：teacher:T001    学生端令牌：student:2026001")
+    print("  教务令牌：admin:A001       或 POST /api/auth/login 换 session:…")
+    print("  统一待审：POST /api/workflow/sync 后 GET /api/workflow/queue")
     print("  启动：make dev（或 python3 aiedu.py dev）后打开 http://127.0.0.1:8900/")
 
 
