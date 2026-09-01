@@ -42,7 +42,10 @@ async function api(path, opts = {}) {
   return data;
 }
 
-const isTeacher = () => S.token.startsWith('teacher:');
+const isTeacher = () => {
+  if (S.me) return ['teacher', 'ta', 'admin'].includes(S.me.role);
+  return S.token.startsWith('teacher:') || S.token.startsWith('admin:');
+};
 const myId = () => (S.me && S.me.student_id) || null;
 
 function heatColor(v) {
@@ -844,7 +847,11 @@ async function boot() {
 
   // 身份切换（演示用；接统一身份认证后替换）
   const sel = $('#identity');
-  const opts = [['teacher:T001', '教师 · 张导师（实验班A）'], ['teacher:T003', '教师 · 王主任（全部班级）']];
+  const opts = [
+    ['teacher:T001', '教师 · 张导师（实验班A）'],
+    ['teacher:T003', '教师 · 王主任（全部班级）'],
+    ['admin:A001', '教务 · 演示管理员'],
+  ];
   try {
     const tk = S.token; S.token = 'teacher:T003';
     const st = await api('/api/students');

@@ -113,10 +113,24 @@ def register(app: App) -> None:
             if b.get(k) is None:
                 raise HTTPError(400, f"缺少 {k}")
         try:
-            return scoring.teacher_score(int(b["session_id"]), int(b["question_id"]),
+            out = scoring.teacher_score(int(b["session_id"]), int(b["question_id"]),
                                          float(b["score"]), b.get("note", ""))
         except ValueError as exc:
             raise HTTPError(400, str(exc)) from exc
+        # 按 session+question 找回 exam_answer.id 以关闭流程项
+        from packages.core.db import get_db
+        from packages.workflow import service as wf
+
+        row = get_db().query_one(
+            "SELECT id FROM exam_answer WHERE session_id=? AND question_id=?",
+            (int(b["session_id"]), int(b["question_id"])),
+        )
+        if row:
+            wf.record_external_decision(
+                "exam_grade", row["id"], "approve", auth.actor_id(req),
+                b.get("note", ""),
+            )
+        return out
 
     @app.get("/api/exam/{exam_id}/ranking", role="teacher")
     def exam_ranking(req: Request):

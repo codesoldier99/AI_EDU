@@ -322,6 +322,15 @@ def seed_teachers() -> int:
     return len(people)
 
 
+def seed_rbac() -> dict:
+    """写入角色-权限矩阵，并把既有教师/学生同步为 auth_account。"""
+    from packages.auth import accounts, rbac
+
+    matrix = rbac.ensure_matrix()
+    synced = accounts.sync_from_legacy()
+    return {**matrix, **synced}
+
+
 def main() -> None:
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
     db = get_db()
@@ -363,6 +372,11 @@ def main() -> None:
             print(f"  ⚠ 未知知识点代码：{r['unknown_kp_codes'][:5]}")
     if what in ("all", "teachers"):
         print(f"→ 教师：{seed_teachers()} 人")
+        r = seed_rbac()
+        print(f"→ RBAC：{r['roles']} 角色 / {r['permissions']} 权限 / "
+              f"{r['bindings']} 绑定；同步账号 teacher={r['teachers']} "
+              f"student={r['students']} admin={r['admin']}")
+        print("  演示令牌：teacher:T001 · admin:A001 · 或 POST /api/auth/login")
     repo.invalidate_stats_cache()   # 图谱结构变了，让 /api/health 立刻反映出来
     print("完成。")
 

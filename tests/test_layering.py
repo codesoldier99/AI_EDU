@@ -157,10 +157,32 @@ class TestLayering(unittest.TestCase):
         """任何 LLM 调用必须经 packages/llm。"""
         sdks = {"openai", "anthropic", "dashscope", "zhipuai", "langchain", "litellm"}
         for d in ("graph", "state", "engagement", "errors", "rag", "agents", "adapters",
-                  "quiz", "tools", "skills", "exam", "courseware"):
+                  "quiz", "tools", "skills", "exam", "courseware", "auth", "workflow"):
             for f in pkg_files(d):
                 for m in imports_of(f):
                     self.assertNotIn(m.split(".")[0], sdks, f"{f} 直接 import 了大模型 SDK")
+
+    def test_auth_is_leafish(self):
+        """RBAC 不得依赖 agents / state / quiz——它只服务鉴权。"""
+        for f in pkg_files("auth"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
+                self.assertFalse(m.startswith("packages.state"), f"{f.name} 引用了 state")
+                self.assertFalse(m.startswith("packages.quiz"), f"{f.name} 引用了 quiz")
+                self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
+
+    def test_workflow_does_not_depend_on_agents_or_llm(self):
+        """流程包可委托 quiz/graph/errors/exam，但不得反向依赖 agents / llm。"""
+        for f in pkg_files("workflow"):
+            for m in imports_of(f):
+                self.assertFalse(m.startswith("packages.agents"), f"{f.name} 引用了 agents")
+                self.assertFalse(m.startswith("packages.llm"), f"{f.name} 引用了 llm")
+                self.assertFalse(m.startswith("packages.state"), f"{f.name} 引用了 state")
+
+    def test_workflow_event_append_only_enforced(self):
+        sql = (ROOT / "migrations" / "009_rbac_workflow.sql").read_text(encoding="utf-8")
+        self.assertIn("workflow_event_no_update", sql)
+        self.assertIn("workflow_event_no_delete", sql)
 
     def test_courseware_does_not_write_mastery_directly(self):
         """课件/大纲/授课计划生成层同样不得绕过 tracker 写掌握度（铁律 1）。"""

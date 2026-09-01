@@ -53,9 +53,16 @@ def register(app: App) -> None:
     @app.post("/api/errors/patterns/{pattern_id}/verify", role="teacher")
     def verify(req: Request):
         body = req.json
+        pid = int(req.path_params["pattern_id"])
         errors.verify_pattern(
-            int(req.path_params["pattern_id"]), body.get("note", ""),
+            pid, body.get("note", ""),
             body.get("description"), body.get("root_cause_kp_id"),
+        )
+        from packages.workflow import service as wf
+
+        wf.record_external_decision(
+            "error_pattern", pid, "approve",
+            auth.actor_id(req), body.get("note", ""),
         )
         return {"ok": True}
 

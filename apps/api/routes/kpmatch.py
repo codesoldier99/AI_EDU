@@ -35,14 +35,21 @@ def register(app: App) -> None:
         if action not in ("accept", "reject"):
             raise HTTPError(400, "action 只能是 accept 或 reject")
         who = req.principal.get("code") or "teacher"
+        cand_id = int(req.path_params["cand_id"])
         try:
             r = graph_repo.decide_candidate(
-                int(req.path_params["cand_id"]), action == "accept",
+                cand_id, action == "accept",
                 decided_by=who, necessity=b.get("necessity"))
         except KeyError as e:
             raise HTTPError(404, str(e))
         if not r.get("ok"):
             raise HTTPError(409, r.get("reason", "已被处理过"))
+        from packages.workflow import service as wf
+
+        wf.record_external_decision(
+            "kp_mapping", cand_id,
+            "approve" if action == "accept" else "reject", who,
+        )
         return r
 
     @app.post("/api/kpmatch/why/{cand_id}", role="teacher")

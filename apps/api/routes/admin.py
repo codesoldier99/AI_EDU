@@ -49,7 +49,13 @@ def register(app: App) -> None:
 
     @app.get("/api/whoami")
     def whoami(req: Request):
-        return req.principal
+        p = dict(req.principal)
+        # 确保演示明文令牌也能带上权限列表
+        if "permissions" not in p or p["permissions"] is None:
+            from packages.auth import rbac
+
+            p["permissions"] = sorted(rbac.permissions_of(p.get("role") or ""))
+        return p
 
     @app.get("/api/replay/{student_id}")
     def replay_check(req: Request):

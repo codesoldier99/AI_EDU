@@ -52,8 +52,16 @@ def register(app: App) -> None:
     @app.post("/api/quiz/review/{question_id}", role="teacher")
     def quiz_review(req: Request):
         b = req.json
-        return bank.review(int(req.path_params["question_id"]),
-                           b.get("action", "accept"), b.get("patch"))
+        qid = int(req.path_params["question_id"])
+        action = b.get("action", "accept")
+        out = bank.review(qid, action, b.get("patch"))
+        from packages.workflow import service as wf
+
+        wf_action = "approve" if action in ("accept", "edit") else "reject"
+        wf.record_external_decision(
+            "quiz_draft", qid, wf_action, auth.actor_id(req),
+        )
+        return out
 
     @app.get("/api/quiz/bank", role="teacher")
     def quiz_bank(req: Request):
@@ -110,8 +118,14 @@ def register(app: App) -> None:
         b = req.json
         if "is_correct" not in b:
             raise HTTPError(400, "缺少 is_correct")
-        return quiz.teacher_grade(int(req.path_params["event_id"]),
-                                  bool(b["is_correct"]), b.get("note", ""))
+        eid = int(req.path_params["event_id"])
+        out = quiz.teacher_grade(eid, bool(b["is_correct"]), b.get("note", ""))
+        from packages.workflow import service as wf
+
+        wf.record_external_decision(
+            "quiz_grade", eid, "approve", auth.actor_id(req), b.get("note", ""),
+        )
+        return out
 
     # ---------------- 分步解题 ----------------
     @app.post("/api/solve/start")

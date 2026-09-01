@@ -115,10 +115,16 @@ def register(app: App) -> None:
     @app.post("/api/review/findings/{finding_id}/action", role="teacher")
     def finding_action(req: Request):
         b = req.json
-        return review_agent.teacher_action(
-            int(req.path_params["finding_id"]), b.get("action", "accepted"),
-            b.get("note", ""),
+        fid = int(req.path_params["finding_id"])
+        action = b.get("action", "accepted")
+        out = review_agent.teacher_action(fid, action, b.get("note", ""))
+        from packages.workflow import service as wf
+
+        wf_action = "approve" if action in ("accepted", "modified") else "reject"
+        wf.record_external_decision(
+            "review_finding", fid, wf_action, auth.actor_id(req), b.get("note", ""),
         )
+        return out
 
     @app.get("/api/review/rules", role="teacher")
     def rules(req: Request):
