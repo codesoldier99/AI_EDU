@@ -9,7 +9,11 @@
 
 # 公开报名入口的限流桶。limit_req_zone 只能放在 http 块里，
 # 所以这一行要么放进 /etc/nginx/nginx.conf 的 http{}，要么让本文件被 http{} include。
-limit_req_zone $binary_remote_addr zone=signup:1m rate=6r/m;
+#
+# 速率按"一屋子人同时交"来定，不能按单个用户：会场上几十位老师连同一个 WiFi，
+# 出口是同一个公网 IP，卡在几次每分钟的话大部分人会当场吃到 503，
+# 而他们只会以为"这破系统又坏了"。burst 放大、稳态收紧。
+limit_req_zone $binary_remote_addr zone=signup:1m rate=30r/m;
 
 server {
     listen 80;
@@ -36,7 +40,7 @@ server {
             auth_basic "院长实验班 AI 教学系统";
             auth_basic_user_file /etc/nginx/aiedu.htpasswd;
         }
-        limit_req zone=signup burst=3 nodelay;   # 公开写入口必须限流
+        limit_req zone=signup burst=50 nodelay;  # 公开写入口必须限流
         client_max_body_size 8k;
         include /etc/nginx/proxy_params;
         proxy_pass http://127.0.0.1:8900;
