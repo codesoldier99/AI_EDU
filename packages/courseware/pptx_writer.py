@@ -76,10 +76,56 @@ def _rect(idx: int, x: int, y: int, cx: int, cy: int, color: str, alpha: int = 1
     )
 
 
+def table_row_heights(rows: list[list[str]], widths: list[float], cx: int,
+                      sz: int = 15, row_h: int = 380000) -> list[int]:
+    """按单元格折行后的实际行数估算每行高度。
+
+    `<a:tr h="...">` 在 PowerPoint 里是**最小**行高，内容多了行会自己长高。
+    调用方却要知道表格画完之后 y 走到哪里——不估这一下，就会按"每行 380000"
+    往下排，长表格后面的正文会直接压在表格上。这个坑在渲染成 PDF 之前看不出来，
+    因为 XML 本身是合法的。
+    """
+    total = sum(widths) or 1
+    heights = []
+    for row in rows:
+        lines = 1
+        for cell, w in zip(row, widths):
+            colw = int(cx * w / total)
+            # 中文字宽约等于字号；减掉单元格左右内边距，留 0.86 余量给标点与英文。
+            # 这两个系数是拿渲染出来的 PDF 反量出来的，宁可高估：估多了只是多留白，
+            # 估少了正文会压在表格上，而这个在 XML 层面完全看不出来。
+            per_line = max(4, int((colw - 183000) * 0.86 / (sz * 12700)))
+            text = str(cell).replace("**", "")
+            lines = max(lines, max(1, -(-len(text) // per_line)))
+        heights.append(max(row_h, int(190000 + sz * 12700 + lines * sz * 12700 * 1.15)))
+    return heights
+
+
+def bullets_height(bullets: list[str] | None, cx: int) -> int:
+    """估算一组要点占多高。
+
+    用途是**给表格留位置**：表格画完 y 走到哪里，取决于它下面还有多少正文。
+    不估这一下，长表格会把正文挤成自动缩字后的蚂蚁字——比溢出更难发现，
+    因为渲染出来"看起来还在"。
+    """
+    total = 0
+    for raw in bullets or []:
+        lvl, text = 0, raw
+        while text.startswith("  "):
+            lvl += 1
+            text = text[2:]
+        sz = 19 if lvl == 0 else 16
+        per_line = max(8, int(cx * 0.90 / (sz * 12700)))
+        lines = max(1, -(-len(text.replace("**", "")) // per_line))
+        total += int(lines * sz * 12700 * 1.25) + 130000
+    return total
+
+
 def _table(idx: int, x: int, y: int, cx: int, rows: list[list[str]],
            widths: list[float], sz: int = 15, row_h: int = 380000) -> str:
     total = sum(widths)
     cols = "".join(f'<a:gridCol w="{int(cx * w / total)}"/>' for w in widths)
+    heights = table_row_heights(rows, widths, cx, sz, row_h)
     body = ""
     for r, row in enumerate(rows):
         head = r == 0
@@ -94,11 +140,11 @@ def _table(idx: int, x: int, y: int, cx: int, rows: list[list[str]],
                 f'<a:lnB w="6350"><a:solidFill><a:srgbClr val="E5E7EB"/></a:solidFill></a:lnB>'
                 f'<a:solidFill><a:srgbClr val="{fill}"/></a:solidFill></a:tcPr></a:tc>'
             )
-        body += f'<a:tr h="{row_h}">{cells}</a:tr>'
+        body += f'<a:tr h="{heights[r]}">{cells}</a:tr>'
     return (
         f'<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="{idx}" name="t{idx}"/>'
         f'<p:cNvGraphicFramePr/><p:nvPr/></p:nvGraphicFramePr>'
-        f'<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{row_h * len(rows)}"/></p:xfrm>'
+        f'<p:xfrm><a:off x="{x}" y="{y}"/><a:ext cx="{cx}" cy="{sum(heights)}"/></p:xfrm>'
         f'<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">'
         f'<a:tbl><a:tblPr firstRow="1"/><a:tblGrid>{cols}</a:tblGrid>{body}</a:tbl>'
         f'</a:graphicData></a:graphic></p:graphicFrame>'
@@ -191,6 +237,80 @@ def build_slide(spec: dict, page: int, total: int) -> str:
             idx += 1
         sh += _txbox(90, "pg", W - M - 900000, H - 480000, 900000, 300000,
                      _para(f"{page} / {total}", 11, MUTED, space_before=0, align="r"))
+        return _slide_xml(sh)
+
+    if kind == "bigword":
+        # 一个字顶一页。给听众留出想的时间，讲的人也就不会急着往下翻。
+        sh += _rect(2, 0, 0, W, H, spec.get("bg", "0B1B3A"), 100000)
+        sh += _txbox(3, "w", M, 1500000, W - 2 * M, 2600000,
+                     _para(spec["word"], spec.get("wsz", 200), spec.get("fg", "FFFFFF"),
+                           bold=True, space_before=0, align="ctr"))
+        if spec.get("sub"):
+            sh += _txbox(4, "s", M, 4400000, W - 2 * M, 900000,
+                         _para(spec["sub"], spec.get("ssz", 28),
+                               spec.get("subfg", "9CC6FF"), space_before=0, align="ctr"))
+        if spec.get("note"):
+            sh += _txbox(5, "f", M, H - 900000, W - 2 * M, 500000,
+                         _para(spec["note"], 15, spec.get("subfg", "9CC6FF"),
+                               space_before=0, align="ctr"))
+        return _slide_xml(sh)
+
+    if kind == "fullimage":
+        # 整版出血图。示意图（docs/images 下那几张）本身就是按 16:9 画的、
+        # 自带标题，再套一层页面标题只会重复两遍。
+        #
+        # band=True 时把图整体缩一点，在底部让出一条实心说明栏。
+        # 不让位的话，说明文字会盖在图自己的内容上——深色氛围图无所谓，
+        # 但构想图底部本来就有一条"共同的底座"，压上去就成了两层字叠在一起。
+        band = 1000000 if (spec.get("band") and spec.get("note")) else 0
+        if spec.get("image"):
+            if band:
+                iw, ih = spec["_imgsize"]
+                scale = min(W / iw, (H - band) / ih)
+                cw, ch = int(iw * scale), int(ih * scale)
+                sh += _pic(2, spec["_rid"], (W - cw) // 2, ((H - band) - ch) // 2, cw, ch)
+            else:
+                sh += _pic(2, spec["_rid"], 0, 0, W, H)
+        if spec.get("note"):
+            ny = H - band if band else H - 940000
+            nh = band - 60000 if band else 520000
+            sh += _rect(3, 0 if band else M, ny, W if band else W - 2 * M, nh,
+                        spec.get("notebg", "FFFFFF"), 12000 if not band else 100000)
+            sh += _txbox(4, "note", M, ny + (140000 if band else 50000),
+                         W - 2 * M, nh - 100000,
+                         _para(spec["note"], 16 if band else 15,
+                               spec.get("notefg", INK), space_before=0))
+        sh += _txbox(90, "pg", W - M - 900000, H - 420000, 900000, 300000,
+                     _para(f"{page} / {total}", 11, spec.get("pgfg", MUTED),
+                           space_before=0, align="r"))
+        return _slide_xml(sh)
+
+    if kind == "thanks":
+        sh += _rect(2, 0, 0, W, H, ACCENT, 100000)
+        # 带图（通常是报名二维码）时把标题收到顶部，把画面让给图——
+        # 这一页会在答疑期间一直挂着，那正是别人掏手机扫码的时候。
+        has_img = bool(spec.get("image"))
+        ty = 560000 if has_img else 2100000
+        sh += _txbox(3, "t", M, ty, W - 2 * M, 1000000,
+                     _para(spec["title"], 44 if has_img else 60, "FFFFFF", bold=True,
+                           space_before=0, align="ctr"))
+        if has_img:
+            iw, ih = spec["_imgsize"]
+            top = ty + 1080000
+            avail_h = H - top - 1000000
+            avail_w = W - 2 * M
+            scale = min(avail_w / iw, avail_h / ih)
+            cw, ch = int(iw * scale), int(ih * scale)
+            sh += _rect(4, (W - cw) // 2 - 60000, top - 60000, cw + 120000, ch + 120000,
+                        "FFFFFF", 100000)
+            sh += _pic(5, spec["_rid"], (W - cw) // 2, top, cw, ch)
+            sh += _txbox(6, "s", M, top + ch + 180000, W - 2 * M, 700000,
+                         "".join(_para(line, 17, "E8F0FE", space_before=140, align="ctr")
+                                 for line in spec.get("bullets", [])))
+        else:
+            sh += _txbox(4, "s", M, 3500000, W - 2 * M, 1700000,
+                         "".join(_para(line, 20, "E8F0FE", space_before=300, align="ctr")
+                                 for line in spec.get("bullets", [])))
         return _slide_xml(sh)
 
     if kind == "section":
@@ -315,10 +435,22 @@ def build_slide(spec: dict, page: int, total: int) -> str:
     if spec.get("table"):
         rows = spec["table"]
         widths = spec.get("widths") or [1] * len(rows[0])
-        sh += _table(idx, M, y, W - 2 * M, rows, widths,
-                     sz=spec.get("tsz", 15), row_h=spec.get("rowh", 400000))
+        tsz, trh = spec.get("tsz", 15), spec.get("rowh", 400000)
+        cx = W - 2 * M
+        # 先算这张表能占多高：底下的正文和脚注各自要留出位置。
+        reserve = (1000000 if spec.get("note") else 320000)
+        reserve += bullets_height(spec.get("bullets"), cx)
+        avail = max(H - y - reserve, 1400000)
+        # 塞不下就一号一号往下降字号。降字号同时也让每格少折行，
+        # 收得比想象中快；降到 10 磅还塞不下，就是这一页内容真的太多了，
+        # 该改文案而不是接着压版面。
+        while tsz > 10 and sum(table_row_heights(rows, widths, cx, tsz, trh)) > avail:
+            tsz -= 1
+        sh += _table(idx, M, y, cx, rows, widths, sz=tsz, row_h=trh)
         idx += 1
-        y += 400000 * len(rows) + 260000
+        # y 必须按表格**实际**高度推进，不能按行数 × 固定行高——
+        # 单元格一折行，后面的正文就会压到表格上。
+        y += sum(table_row_heights(rows, widths, cx, tsz, trh)) + 260000
 
     if spec.get("cols"):
         # 列宽按**实际列数**算。原来这里写死了 2，三栏版式会整列溢出到画布外——
@@ -369,7 +501,8 @@ def build_slide(spec: dict, page: int, total: int) -> str:
             color = INK if lvl == 0 else "4A5561"
             body += _para(text, sz, color, indent=lvl,
                           bullet="▪" if lvl == 0 else "–", space_before=340)
-        sh += _txbox(idx, "body", M, y, W - 2 * M, H - y - 800000, body)
+        sh += _txbox(idx, "body", M, y, W - 2 * M,
+                     max(H - y - (1000000 if spec.get("note") else 800000), 400000), body)
         idx += 1
 
     if spec.get("note"):

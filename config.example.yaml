@@ -4,6 +4,9 @@
 # ---- 服务 ----
 host: 127.0.0.1
 port: 8900
+# 对外入口。只用于生成二维码与分享链接（make figures qr），服务仍监听 host:port。
+# 校内部署后填实际地址，例如 http://10.1.2.3 或 https://aiedu.fjut.edu.cn
+public_base_url: ""
 db_url: "sqlite:///var/aiedu.db"
 # 生产形态：postgresql://user:pass@host/aiedu   （需安装 psycopg 并实现 PgDatabase）
 

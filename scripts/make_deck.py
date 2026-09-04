@@ -2,6 +2,7 @@
 
     python3 scripts/make_deck.py            # → docs/slides/院长实验班AI教学系统_汇报.pptx
     python3 scripts/make_deck.py pm         # → docs/slides/项目制教学的管理方法_汇报.pptx
+    python3 scripts/make_deck.py fac        # → docs/slides/AI冲击下的行动准备_全院教师汇报.pptx
 
 幻灯片内容写在 deck_content.py 里，改文案不用碰这里。
 所有数字都从当前数据库读，避免 PPT 与系统对不上。
@@ -24,6 +25,8 @@ from packages.courseware.pptx_writer import _png_size, build_slide, write_pptx
 DECKS = {
     "all":  ("deck_content",    "院长实验班AI教学系统_汇报", "院长实验班 AI 教学系统 · 汇报"),
     "pm":   ("deck_pm_content", "项目制教学的管理方法_汇报", "项目制教学的管理方法 · 教师研讨"),
+    "fac":  ("deck_faculty_content", "AI冲击下的行动准备_全院教师汇报",
+             "AI 冲击下，我们做了什么准备 · 全院教师会"),
 }
 
 

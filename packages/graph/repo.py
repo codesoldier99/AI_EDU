@@ -26,7 +26,25 @@ def upsert_course(code: str, name: str, credit: float = 0, term: str = "") -> in
 
 
 def get_course(code: str) -> dict | None:
-    return get_db().query_one("SELECT * FROM course WHERE code=?", (code,))
+    """按代码取课程；**旧代码走转发指针**。
+
+    课程代码在合并进培养方案正式代码后，旧行会被删掉（见 merge_course）。
+    但旧代码仍散落在老师收藏的深链、前端常量、脚本参数里，直接返回 None
+    会让调用方要么 404、要么静默返回"未找到课程"——后者更坏，因为页面还在，
+    只是里面什么都没有。所以这里先查正表，查不到再查一次别名表。
+    """
+    db = get_db()
+    row = db.query_one("SELECT * FROM course WHERE code=?", (code,))
+    if row:
+        return row
+    return db.query_one(
+        "SELECT c.* FROM course c JOIN course_alias a ON a.course_id=c.id "
+        "WHERE a.alias=?", (code,))
+
+
+def course_aliases(course_id: int) -> list[str]:
+    return [r["alias"] for r in get_db().query(
+        "SELECT alias FROM course_alias WHERE course_id=? ORDER BY alias", (course_id,))]
 
 
 def get_course_by_id(course_id: int) -> dict | None:
@@ -34,7 +52,15 @@ def get_course_by_id(course_id: int) -> dict | None:
 
 
 def list_courses() -> list[dict]:
-    return get_db().query("SELECT * FROM course ORDER BY id")
+    """课程清单，带本课已建知识点数。
+
+    n_kps 是给调用方选课用的：图谱建设是按需求队列逐门推进的，任何时候都有
+    一批课程还是 0 个知识点。前端拿它来决定哪些课进下拉框、默认落在哪一门，
+    比在代码里写死一个课程代码可靠——写死的那个迟早会被合并掉。
+    """
+    return get_db().query(
+        "SELECT c.*, (SELECT COUNT(*) FROM knowledge_point k WHERE k.course_id=c.id) "
+        "AS n_kps FROM course c ORDER BY c.id")
 
 
 # 除 knowledge_point 外，还引用 course(id) 的表。合并课程时要一并改指向，
@@ -50,11 +76,22 @@ def merge_course(from_code: str, into_code: str) -> dict:
     所以先把引用它的记录改指向新课程，确认知识点已全部移交，才删掉空壳行。
     """
     db = get_db()
-    src, dst = get_course(from_code), get_course(into_code)
-    if not src:
-        return {"merged": False, "reason": f"源课程不存在：{from_code}"}
+    # 源课程必须按**正表**查，不能走 get_course 的别名回退：合并完成后
+    # get_course("ML") 会指到 G18Z21022，再跑一次 seed 就变成"把课程合并进自己"，
+    # 而下面是要 DELETE 掉源行的——那一刀会砍在目标课程上。
+    src = db.query_one("SELECT * FROM course WHERE code=?", (from_code,))
+    dst = get_course(into_code)
     if not dst:
         return {"merged": False, "reason": f"目标课程不存在：{into_code}"}
+    if not src:
+        # 已经合过了：确认别名在位就当成功返回，让 seed 保持幂等。
+        db.execute(
+            "INSERT OR IGNORE INTO course_alias(alias, course_id, merged_at) "
+            "VALUES(?,?,datetime('now'))", (from_code, dst["id"]))
+        return {"merged": False, "already": True,
+                "reason": f"源课程不存在：{from_code}（已合并，别名在位）"}
+    if src["id"] == dst["id"]:
+        return {"merged": False, "already": True, "reason": "源课程与目标课程是同一门"}
     left = db.scalar("SELECT COUNT(*) FROM knowledge_point WHERE course_id=?", (src["id"],))
     if left:
         return {"merged": False, "reason": f"仍有 {left} 个知识点未移交", "kps_left": left}
@@ -68,6 +105,16 @@ def merge_course(from_code: str, into_code: str) -> dict:
             moved[tbl] = n
     db.execute("DELETE FROM program_course WHERE course_id=?", (src["id"],))
     db.execute("DELETE FROM course_prefix WHERE course_id=?", (src["id"],))
+    # 转发指针必须在 DELETE **之前**立好：course_alias.course_id 上挂着
+    # ON DELETE CASCADE，先删课程会把指向它的别名一起带走，A→B→C 两跳之后
+    # 第一段链就断了。
+    # 旧课程自己背着的别名先改指向……
+    db.execute("UPDATE course_alias SET course_id=? WHERE course_id=?",
+               (dst["id"], src["id"]))
+    # ……再为这一次合并立指针。旧代码是身份，改名后必须还能指回来；
+    # 少了这一步，前端里写死的 /api/universe/ML 会在合并当天集体 404。
+    db.execute("INSERT OR IGNORE INTO course_alias(alias, course_id, merged_at) "
+               "VALUES(?,?,datetime('now'))", (from_code, dst["id"]))
     db.execute("DELETE FROM course WHERE id=?", (src["id"],))
     return {"merged": True, "from": from_code, "into": into_code, "moved": moved}
 

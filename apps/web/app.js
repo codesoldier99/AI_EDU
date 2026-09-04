@@ -10,6 +10,10 @@
 const S = {
   token: localStorage.getItem('aiedu.token') || 'teacher:T001',
   tab: null, cache: {}, me: null, health: null,
+  // 当前课程。**不写死代码**：图谱按需求队列一门门建，课程代码还会被合并
+  // （ML 就已经并进 G18Z21022），任何写死的常量都活不过下一次合并。
+  course: localStorage.getItem('aiedu.course') || '',
+  courses: null,
 };
 
 // ---------------------------------------------------------------- 工具
@@ -80,6 +84,55 @@ function renderPicker(host, needed) {
     h('span', { class: 'pill' }, '教师可见本班学生；跨班访问会被 API 拒绝'))));
 }
 
+// ---------------------------------------------------------------- 课程选择
+// 只把"已经建了知识点"的课程放进下拉框：需求队列还没轮到的课程是空的，
+// 让人点进去看一片空白，比不给这个选项更糟。
+async function loadCourses() {
+  if (S.courses) return S.courses;
+  const d = await api('/api/courses');
+  S.courses = (d.items || []).filter((c) => (c.n_kps || 0) > 0);
+  return S.courses;
+}
+
+// 跨课程全图。归属移交之后，13% 的依赖边两端不在同一门课里
+// （链式法则在高等数学B，反向传播在深度学习），单课程视图会把它们全部滤掉。
+const ALL_COURSES = {
+  code: 'ALL', name: '全部课程（跨课程视图）', n_kps: 0, cross: true,
+};
+
+async function currentCourse(opts = {}) {
+  const list = await loadCourses();
+  if (!list.length) return null;
+  const pool = opts.cross === false ? list : [ALL_COURSES, ...list];
+  const want = opts.cross === false ? S.course : (S.course || ALL_COURSES.code);
+  const hit = pool.find((c) => c.code === want);
+  if (hit) return hit;
+  // 退而求其次：落在知识点最多的那门课——它一定是当前讲得最深的那门。
+  return list.reduce((a, b) => ((b.n_kps || 0) > (a.n_kps || 0) ? b : a));
+}
+
+async function coursePicker(label = '课程', opts = {}) {
+  const list = await loadCourses();
+  const cur = await currentCourse(opts);
+  if (!cur) return h('span', { class: 'muted' }, '图谱里还没有任何课程');
+  const pool = opts.cross === false ? list : [ALL_COURSES, ...list];
+  const total = list.reduce((a, c) => a + (c.n_kps || 0), 0);
+  return h('div', { class: 'flexrow' },
+    h('span', { class: 'pill' }, label),
+    h('select', {
+      onchange: (e) => {
+        S.course = e.target.value;
+        localStorage.setItem('aiedu.course', S.course);
+        render();
+      },
+    }, ...pool.map((c) => h('option', {
+      value: c.code, selected: c.code === cur.code ? '' : null,
+    }, c.cross ? `${c.name}（${total} 个知识点 · ${list.length} 门课）`
+      : `${c.name}（${c.n_kps} 个知识点）`))),
+    h('span', { class: 'muted' },
+      '知识点归属唯一，所以这是"归集视图"，不是教学顺序'));
+}
+
 function bar(v) {
   return h('span', { class: 'bar' }, h('i', { style: `width:${pct(v)};background:${heatColor(v)}` }));
 }
@@ -125,8 +178,16 @@ function lineSvg(points, w = 420, hgt = 130) {
 async function viewClassDiagnosis(root) {
   root.append(loading());
   const klass = isTeacher() ? (S.klass || '') : '';
-  const d = await api(`/api/diagnosis/class/ML${klass ? `?klass=${encodeURIComponent(klass)}` : ''}`);
+  const course = await currentCourse({ cross: false });
+  if (!course) {
+    root.innerHTML = '';
+    root.append(h('div', { class: 'notice' }, '图谱里还没有任何知识点，先跑 make seed。'));
+    return;
+  }
+  const d = await api(`/api/diagnosis/class/${encodeURIComponent(course.code)}`
+    + `${klass ? `?klass=${encodeURIComponent(klass)}` : ''}`);
   root.innerHTML = '';
+  root.append(card('诊断哪一门课', await coursePicker('班级诊断', { cross: false })));
   const p = d.plan;
 
   root.append(h('div', { class: 'grid g3' },
@@ -471,8 +532,19 @@ async function viewAsk(root) {
 
 async function startAskByCode() {
   const code = $('#ask-kp').value.trim();
-  const kps = await api('/api/courses/ML/kps');
-  const kp = kps.items.find((k) => k.code === code || k.name === code);
+  const course = await currentCourse({ cross: false });
+  const kps = await api(`/api/courses/${encodeURIComponent(course.code)}/kps`);
+  let kp = kps.items.find((k) => k.code === code || k.name === code);
+  if (!kp) {
+    // 输入的代码可能属于别的课（DAC-05-10 这类跨课程前置很常见），
+    // 所以在本课找不到时再全图找一遍，而不是直接说"不存在"。
+    for (const c of await loadCourses()) {
+      if (c.code === course.code) continue;
+      const other = await api(`/api/courses/${encodeURIComponent(c.code)}/kps`);
+      kp = other.items.find((k) => k.code === code || k.name === code);
+      if (kp) break;
+    }
+  }
   if (!kp) return alert('未找到该知识点');
   startAsk(kp.id);
 }
@@ -565,8 +637,15 @@ async function viewCopilot(root) {
 // ---------------------------------------------------------------- 视图：图谱
 async function viewGraph(root) {
   root.append(loading());
-  const d = await api('/api/courses/ML/kps');
+  const course = await currentCourse({ cross: false });
+  if (!course) {
+    root.innerHTML = '';
+    root.append(h('div', { class: 'notice' }, '图谱里还没有任何知识点，先跑 make seed。'));
+    return;
+  }
+  const d = await api(`/api/courses/${encodeURIComponent(course.code)}/kps`);
   root.innerHTML = '';
+  root.append(card('看哪一门课', await coursePicker('知识图谱', { cross: false })));
   const units = {};
   for (const k of d.items) (units[k.unit] = units[k.unit] || []).push(k);
   root.append(h('div', { class: 'grid g3' },
@@ -616,9 +695,17 @@ async function openKp(kpId) {
 async function viewUniverse(root) {
   const sid = currentStudent();
   root.append(loading());
-  const url = `/api/universe/ML${isTeacher() || myId() ? `?student_id=${sid}` : ''}`;
+  const course = await currentCourse();
+  if (!course) {
+    root.innerHTML = '';
+    root.append(h('div', { class: 'notice' }, '图谱里还没有任何知识点，先跑 make seed。'));
+    return;
+  }
+  const url = `/api/universe/${encodeURIComponent(course.code)}`
+    + `${isTeacher() || myId() ? `?student_id=${sid}` : ''}`;
   const data = await api(url);
   root.innerHTML = '';
+  root.append(card('看哪一门课', await coursePicker('知识宇宙')));
 
   root.append(card('知识宇宙', h('div', {},
     h('p', { class: 'hint' },
@@ -628,8 +715,22 @@ async function viewUniverse(root) {
     h('div', { class: 'flexrow' },
       h('span', { class: 'tag' }, `${data.nodes.length} 知识点`),
       h('span', { class: 'tag' }, `${data.edges.length} 依赖边`),
+      data.cross_course
+        ? h('span', { class: 'tag accent' }, `${data.cross_edges} 条跨课程依赖`)
+        : null,
       h('span', { class: 'tag' }, `最大依赖深度 ${data.max_depth}`),
-      h('span', { class: 'tag accent' }, data.course.name)))));
+      h('span', { class: 'tag accent' },
+        `${data.cross_course ? '' : '课程：'}${data.course.name}`)),
+    data.cross_course
+      ? h('p', { class: 'hint' },
+        `每一团星系是一门课（共 ${data.units.length} 门已建图谱的课程）。`
+        + `这 ${data.cross_edges} 条跨课程依赖是这套系统最想让人看见的东西——`
+        + '"链式法则"在高等数学，"反向传播"在深度学习，'
+        + '学生卡在后者，根因却在另一门课的另一个学期。'
+        + '按课程各自排课的做法看不见这条线；按项目需求拉取才看得见。')
+      : h('p', { class: 'hint' },
+        '当前是单课程视图，两端不在本课的依赖边不会显示。'
+        + '想看"根因在别的课里"的那条线，请在上面切到「全部课程（跨课程视图）」。'))));
 
   const wrap = h('div', { class: 'kg-wrap' });
   root.append(wrap);
@@ -643,7 +744,8 @@ async function viewUniverse(root) {
     S.universe = mod.mountUniverse(wrap, {
       data,
       fetchRootCause: (kpId) =>
-        api(`/api/universe/ML/rootcause/${kpId}?student_id=${sid}`).catch(() => null),
+        api(`/api/universe/${encodeURIComponent(course.code)}/rootcause/${kpId}`
+          + `?student_id=${sid}`).catch(() => null),
       onAsk: (d) => startAsk(d.id),
     });
   } catch (e) {

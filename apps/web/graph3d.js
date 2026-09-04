@@ -19,11 +19,18 @@ import { OrbitControls } from '/vendor/OrbitControls.js';
 import { Layout, labelPriority, masteryColor as mcolor, nodeRadius, visibleMask }
   from '/kg-core.js';
 
-const LAYOUTS = [
+// 星系按 node.unit 分组。单课程视图里 unit 是章节，跨课程视图里是课程本身，
+// 所以这两种模式的名字得跟着 data.cross_course 走，否则跨课程视图里会写着
+// "章节星系"而每团其实是一门课。
+const layouts = (cross) => [
   { id: 'depend', name: '依赖分层', hint: 'Y 轴为依赖深度：前置在下、后继在上' },
-  { id: 'cluster', name: '章节星系', hint: '按章节聚成星系，看课程的宏观结构' },
+  cross
+    ? { id: 'cluster', name: '课程星系', hint: '一团星系就是一门课，连线跨过去的就是跨课程依赖' }
+    : { id: 'cluster', name: '章节星系', hint: '按章节聚成星系，看课程的宏观结构' },
   { id: 'force', name: '自由力导向', hint: '只看连接关系本身' },
-  { id: 'sphere', name: '知识球面', hint: '按章节切分球面扇区' },
+  cross
+    ? { id: 'sphere', name: '知识球面', hint: '按课程切分球面扇区' }
+    : { id: 'sphere', name: '知识球面', hint: '按章节切分球面扇区' },
 ];
 
 const C = {
@@ -311,6 +318,15 @@ export function mountUniverse(host, opts) {
     if (d) flyTo(d.id);
   });
 
+  // 根因落在另一门课时点破它。按课程排课的教法看不见这条线：
+  // 学生"深度学习不会"，根因却在上一学期的另一门课里。
+  function rcCrossNote(d, rc) {
+    if (!data.cross_course || !rc || rc.is_self) return '';
+    const root = nodes.find((x) => x.id === rc.root_kp_id);
+    if (!root || !root.course_name || root.course_name === d.course_name) return '';
+    return `<br>注意：它不在本门课里——「${root.course_name}」。`;
+  }
+
   function select(id) {
     S.selected = id;
     S.pathSet = null;
@@ -408,7 +424,7 @@ export function mountUniverse(host, opts) {
     ui.innerHTML = '';
     const bar = document.createElement('div');
     bar.className = 'kg-bar';
-    for (const l of LAYOUTS) {
+    for (const l of layouts(data.cross_course)) {
       const b = document.createElement('button');
       b.textContent = l.name;
       b.title = l.hint;
@@ -498,11 +514,13 @@ export function mountUniverse(host, opts) {
       <div class="kg-p-head">
         <div>
           <div class="kg-p-title">${d.name}</div>
-          <div class="kg-p-sub">${d.code} · ${d.unit}</div>
+          <div class="kg-p-sub">${d.code} · ${d.chapter || d.unit}</div>
         </div>
         <button class="kg-close">×</button>
       </div>
       <div class="kg-tags">
+        ${data.cross_course && d.course_name
+          ? `<span class="tag accent">${d.course_name}</span>` : ''}
         <span class="tag">${d.type}</span>
         <span class="tag">依赖深度 ${d.depth}</span>
         <span class="tag">挡路度 ${d.severity}</span>
@@ -524,7 +542,7 @@ export function mountUniverse(host, opts) {
       ${rc ? (rc.is_self
         ? '<div class="kg-note">回溯结果：本身即根因，建议直接重讲并当堂检测。</div>'
         : `<div class="kg-note hi">根因回溯（深度 ${rc.depth}）：真正卡住的是「${rc.root_name}」，
-           已在图上点亮整条链。</div>`) : ''}
+           已在图上点亮整条链。${rcCrossNote(d, rc)}</div>`) : ''}
       <div class="kg-actions">
         ${hasStudent ? '<button class="kg-rc">根因回溯</button>' : ''}
         <button class="kg-focus">聚焦邻域</button>

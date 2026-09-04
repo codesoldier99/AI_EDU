@@ -75,6 +75,48 @@ class TestTeachingPlanAgent(DBTestCase):
             TeachingPlanAgent().plan(999999)
 
 
+class TestTableRowHeights(unittest.TestCase):
+    """表格行高必须按折行后的实际行数算。
+
+    `<a:tr h="...">` 在 PowerPoint 里是**最小**行高，内容多了行会自己长高；
+    调用方却要据此决定表格画完之后正文从哪儿开始。按"每行固定 380000"往下排，
+    长表格后面的正文会直接压在表格上——而这个错误在 XML 层面完全合法，
+    只有把 PPT 渲染成图才看得出来。汇报 PPT 的第 4、11、20 页都栽在这上面。
+    """
+
+    CX = 10752000     # 16:9 画布减去左右边距
+
+    def test_wrapping_row_is_taller_than_single_line_row(self):
+        from packages.courseware.pptx_writer import table_row_heights
+
+        rows = [["表头", "表头"], ["短", "短"], ["短", "这是一段明显会折成两行以上的长文字" * 3]]
+        h = table_row_heights(rows, [1, 3], self.CX)
+        self.assertGreater(h[2], h[1], "折行的那一行没有变高")
+
+    def test_never_below_the_requested_minimum(self):
+        from packages.courseware.pptx_writer import table_row_heights
+
+        h = table_row_heights([["a", "b"], ["c", "d"]], [1, 1], self.CX, row_h=900000)
+        self.assertTrue(all(x >= 900000 for x in h))
+
+    def test_bold_markers_do_not_inflate_the_line_count(self):
+        """** 是加粗标记，不占版面宽度，不能算进字数。"""
+        from packages.courseware.pptx_writer import table_row_heights
+
+        plain = table_row_heights([["机制", "怎么做的"]], [1, 3], self.CX)
+        bold = table_row_heights([["**机制**", "**怎么做的**"]], [1, 3], self.CX)
+        self.assertEqual(plain, bold)
+
+    def test_frame_height_matches_the_sum_of_its_rows(self):
+        """graphicFrame 的 cy 与各行高之和必须一致，否则边框和内容对不齐。"""
+        from packages.courseware.pptx_writer import _table, table_row_heights
+
+        rows = [["表头", "表头"], ["短", "又一段会折行的长文字" * 4]]
+        widths = [1, 3]
+        xml = _table(10, 0, 0, self.CX, rows, widths)
+        self.assertIn(f'cy="{sum(table_row_heights(rows, widths, self.CX))}"', xml)
+
+
 class TestDeckPlan(unittest.TestCase):
     def test_kp_coverage_deduplicates(self):
         plan = DeckPlan(slides=[

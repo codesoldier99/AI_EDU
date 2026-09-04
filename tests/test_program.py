@@ -66,9 +66,40 @@ class TestCourseMerge(DBTestCase):
         r = g.merge_course("ML", "G18Z21022")
         self.assertTrue(r["merged"])
         self.assertEqual(r["moved"].get("syllabus"), 1, "教学大纲没有被迁移")
-        self.assertIsNone(g.get_course("ML"))
         self.assertEqual(
             self.db.scalar("SELECT COUNT(*) FROM syllabus WHERE course_id=?", (new_id,)), 1)
+        # 空壳行必须没了（同一门课不该有两行）……
+        self.assertIsNone(
+            self.db.query_one("SELECT * FROM course WHERE code='ML'"),
+            "合并后不该还留着源课程行")
+        # ……但旧代码必须还能指回来。少了这个转发指针，所有写着旧代码的地方
+        # （前端的 /api/universe/ML、老师收藏的深链、deck 脚本）会在合并当天集体 404。
+        self.assertEqual(g.get_course("ML")["id"], new_id, "旧代码没有转发到新课程")
+        self.assertIn("ML", g.course_aliases(new_id))
+
+    def test_merge_is_idempotent_and_never_eats_the_target(self):
+        """合完再合一次。别名回退让 get_course("ML") 指向目标课程，
+        这时若还按 get_course 找源课程，那一刀 DELETE 会砍在目标身上。"""
+        g.upsert_course("ML", "机器学习原理与应用", 4.0, "3")
+        new_id = g.upsert_course("G18Z21022", "机器学习", 3.0, "2")
+        self.assertTrue(g.merge_course("ML", "G18Z21022")["merged"])
+
+        r2 = g.merge_course("ML", "G18Z21022")
+        self.assertFalse(r2["merged"])
+        self.assertTrue(r2["already"])
+        self.assertIsNotNone(
+            self.db.query_one("SELECT * FROM course WHERE id=?", (new_id,)),
+            "第二次合并把目标课程删掉了")
+
+    def test_alias_chain_follows_through_two_merges(self):
+        """A 并进 B、B 再并进 C 之后，A 也要能指到 C。"""
+        g.upsert_course("ML", "机器学习原理与应用", 4.0, "3")
+        g.upsert_course("G18Z21022", "机器学习", 3.0, "2")
+        c_id = g.upsert_course("G18Z21022X", "机器学习（新代码）", 3.0, "2")
+        g.merge_course("ML", "G18Z21022")
+        g.merge_course("G18Z21022", "G18Z21022X")
+        self.assertEqual(g.get_course("ML")["id"], c_id)
+        self.assertEqual(g.get_course("G18Z21022")["id"], c_id)
 
     def test_merge_refuses_while_kps_remain(self):
         """知识点还没移交完就合并，等于把它们连根删掉。"""

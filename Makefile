@@ -1,7 +1,7 @@
 PY ?= python3
 PORT ?= 8900
 
-.PHONY: help dev migrate seed demo mock-llm test test-state test-study test-kpmatch test-program lint replay gap practice skills exam exam-setup kpmatch signals program demand deck clean reset check
+.PHONY: help dev migrate seed demo mock-llm test test-state test-study test-kpmatch test-program lint replay gap practice skills exam exam-setup kpmatch signals program demand deck figures clean reset check
 
 help:
 	@echo "院长实验班 AI 教学系统"
@@ -27,7 +27,8 @@ help:
 	@echo "  make signals                  采集全部项目的五类信号"
 	@echo "  make program A=\"map PRJ-DAC\"     培养方案视图（map/demand/coverage/courses）"
 	@echo "  make demand                   悬空需求队列：下一门课该先建哪几个知识点"
-	@echo "  make deck [D=pm]              生成汇报 PPT（D=all 院领导版 / D=pm 教师版）"
+	@echo "  make deck [D=pm]              生成汇报 PPT（all=院领导 / pm=实验班教师 / fac=全院教师）"
+	@echo "  make figures                  重出汇报插图（海啸 / 方舟 / Agent 构想图）"
 	@echo ""
 	@echo "  make exam-setup               导入并发布选拔考卷 + 签发准考证"
 	@echo "  make exam A=\"rank ML-SELECT-2026\"   考试运维（import/publish/tickets/"
@@ -105,6 +106,9 @@ demand:
 
 deck:
 	$(PY) scripts/make_deck.py $(or $(D),all)
+
+figures:
+	$(PY) scripts/make_figures.py $(F)
 
 exam:
 	$(PY) scripts/exam.py $(A)

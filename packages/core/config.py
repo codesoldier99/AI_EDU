@@ -101,6 +101,9 @@ class Config:
     db_url: str = f"sqlite:///{ROOT / 'var' / 'aiedu.db'}"
     host: str = "127.0.0.1"
     port: int = 8900
+    # 对外访问入口。**只用于生成二维码与分享链接**，服务本身仍监听 host:port。
+    # 空着就退化成 http://<host>:<port>——那种码只有本机能扫，所以部署后必须填。
+    public_base_url: str = ""
     # 大模型（可替换件）。无 Key 时自动降级为离线确定性表达器。
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -133,6 +136,7 @@ def load_config() -> Config:
         "AIEDU_DB_URL": "db_url",
         "AIEDU_HOST": "host",
         "AIEDU_PORT": "port",
+        "AIEDU_PUBLIC_BASE_URL": "public_base_url",
         "LLM_BASE_URL": "llm_base_url",
         "LLM_API_KEY": "llm_api_key",
         "LLM_MODEL": "llm_model",

@@ -36,6 +36,30 @@ class TestAPI(DBTestCase):
         tracker.record(self.student, "quiz", self.kp["A"], True, source="quiz")
         self.app = create_app()
 
+    def test_signup_submit_is_public_but_the_roster_is_not(self):
+        """报名入口刻意是公开的——会场上扫码就得能填，多一步登录就少一批人。
+        但同一批数据的出口必须收窄：填进去的姓名与手机号，不能让公开接口再吐出来。"""
+        r = self.app.dispatch(req("POST", "/api/signup", body={
+            "name": "丙老师", "contact": "13800000000", "roles": ["mentor"]}))
+        self.assertTrue(r["ok"])
+
+        stats = self.app.dispatch(req("GET", "/api/signup/stats"))
+        self.assertEqual(stats["total"], 1)
+        self.assertNotIn("丙老师", repr(stats))
+        self.assertNotIn("13800000000", repr(stats))
+
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("GET", "/api/signup"))
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("GET", "/api/signup", "student:S001"))
+        roster = self.app.dispatch(req("GET", "/api/signup", "teacher:T1"))
+        self.assertEqual(roster["items"][0]["name"], "丙老师")
+
+    def test_signup_rejects_bad_input_as_400_not_500(self):
+        with self.assertRaises(HTTPError) as cm:
+            self.app.dispatch(req("POST", "/api/signup", body={"name": "", "roles": []}))
+        self.assertEqual(cm.exception.status, 400)
+
     def test_health_is_public(self):
         r = self.app.dispatch(req("GET", "/api/health"))
         self.assertTrue(r["ok"])

@@ -1,0 +1,35 @@
+/* 报名页。会场上是用手机扫码打开的，所以按窄屏优先写，宽屏只是把卡片居中。*/
+.signup-body { background: var(--bg, #f6f8fb); }
+.su-wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 64px; }
+.su-head { padding: 26px 0 18px; }
+.su-head h1 { margin: 0 0 6px; font-size: 26px; line-height: 1.35; }
+.su-head p { margin: 0; color: var(--muted, #6b7280); font-size: 14px; line-height: 1.7; }
+.su-card { background: var(--card, #fff); border: 1px solid var(--line, #e5e7eb);
+  border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+.su-field { margin-bottom: 16px; }
+.su-field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 14px; }
+.su-field .hint { font-weight: 400; color: var(--muted, #6b7280); font-size: 12px; }
+.su-field input, .su-field textarea { width: 100%; box-sizing: border-box; padding: 10px 12px;
+  border: 1px solid var(--line, #e5e7eb); border-radius: 8px; font: inherit; font-size: 15px;
+  background: var(--bg, #fff); color: inherit; }
+.su-field textarea { min-height: 76px; resize: vertical; }
+/* 参与方式做成整块可点的卡片而不是小复选框——手机上点得中才填得完 */
+.su-role { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px;
+  border: 1.5px solid var(--line, #e5e7eb); border-radius: 10px; margin-bottom: 10px;
+  cursor: pointer; }
+.su-role.on { border-color: #1f6feb; background: rgba(31,111,235,.06); }
+.su-role input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.su-role b { display: block; margin-bottom: 3px; }
+.su-role span { color: var(--muted, #6b7280); font-size: 13px; line-height: 1.6; }
+.su-submit { width: 100%; padding: 13px; font-size: 16px; font-weight: 600; border: 0;
+  border-radius: 10px; background: #1f6feb; color: #fff; cursor: pointer; }
+.su-submit:disabled { opacity: .55; cursor: default; }
+.su-err { color: #cf222e; font-size: 14px; margin: 10px 0 0; }
+.su-count { color: var(--muted, #6b7280); font-size: 13px; text-align: center; margin: 12px 0 0; }
+.su-done { text-align: center; padding: 34px 20px; }
+.su-done .tick { font-size: 46px; line-height: 1; }
+.su-done h2 { margin: 14px 0 8px; }
+.su-links a { display: block; padding: 12px 14px; border: 1px solid var(--line, #e5e7eb);
+  border-radius: 10px; margin-bottom: 10px; text-decoration: none; color: inherit; }
+.su-links a b { display: block; color: #1f6feb; }
+.su-links a span { color: var(--muted, #6b7280); font-size: 13px; }
