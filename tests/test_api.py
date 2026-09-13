@@ -60,6 +60,30 @@ class TestAPI(DBTestCase):
             self.app.dispatch(req("POST", "/api/signup", body={"name": "", "roles": []}))
         self.assertEqual(cm.exception.status, 400)
 
+    def test_enroll_submit_is_public_but_the_roster_is_not(self):
+        """学生报名走同一种不对称：提交公开，名单教师可见。"""
+        r = self.app.dispatch(req("POST", "/api/enroll", body={
+            "name": "学生甲", "phone": "13800000000"}))
+        self.assertTrue(r["ok"])
+
+        stats = self.app.dispatch(req("GET", "/api/enroll/stats"))
+        self.assertEqual(stats["total"], 1)
+        self.assertNotIn("学生甲", repr(stats))
+        self.assertNotIn("13800000000", repr(stats))
+
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("GET", "/api/enroll"))
+        with self.assertRaises(HTTPError):
+            self.app.dispatch(req("GET", "/api/enroll", "student:S001"))
+        roster = self.app.dispatch(req("GET", "/api/enroll", "teacher:T1"))
+        self.assertEqual(roster["items"][0]["name"], "学生甲")
+
+    def test_enroll_rejects_bad_phone_as_400_not_500(self):
+        with self.assertRaises(HTTPError) as cm:
+            self.app.dispatch(req("POST", "/api/enroll",
+                                   body={"name": "学生甲", "phone": "123"}))
+        self.assertEqual(cm.exception.status, 400)
+
     def test_health_is_public(self):
         r = self.app.dispatch(req("GET", "/api/health"))
         self.assertTrue(r["ok"])

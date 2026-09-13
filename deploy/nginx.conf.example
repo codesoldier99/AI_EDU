@@ -15,6 +15,10 @@
 # 而他们只会以为"这破系统又坏了"。burst 放大、稳态收紧。
 limit_req_zone $binary_remote_addr zone=signup:1m rate=30r/m;
 
+# 学生报名口：128 名新生可能在几分钟内几乎同时扫码提交，且大概率共用校园网
+# 同一个出口 IP——按"一整届学生同时交"定桶，比教师报名口的量级还要高一档。
+limit_req_zone $binary_remote_addr zone=enroll:1m rate=60r/m;
+
 server {
     listen 80;
     server_name aiedu.example.edu.cn;   # ← 换成实际域名或内网地址
@@ -51,6 +55,23 @@ server {
     location = /signup.js        { auth_basic off; proxy_pass http://127.0.0.1:8900; }
     location = /signup.css       { auth_basic off; proxy_pass http://127.0.0.1:8900; }
     location = /styles.css       { auth_basic off; proxy_pass http://127.0.0.1:8900; }
+
+    # ---- 学生报名口：同一种开法，只放行写入和公开计数 ------------------------
+    location = /api/enroll {
+        auth_basic off;
+        limit_except POST {
+            auth_basic "院长实验班 AI 教学系统";
+            auth_basic_user_file /etc/nginx/aiedu.htpasswd;
+        }
+        limit_req zone=enroll burst=200 nodelay;
+        client_max_body_size 4k;
+        include /etc/nginx/proxy_params;
+        proxy_pass http://127.0.0.1:8900;
+    }
+    location = /api/enroll/stats { auth_basic off; proxy_pass http://127.0.0.1:8900; }
+    location = /enroll.html      { auth_basic off; proxy_pass http://127.0.0.1:8900; }
+    location = /enroll.js        { auth_basic off; proxy_pass http://127.0.0.1:8900; }
+    location = /enroll.css       { auth_basic off; proxy_pass http://127.0.0.1:8900; }
 
     location / {
         proxy_pass http://127.0.0.1:8900;

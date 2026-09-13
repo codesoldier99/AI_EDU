@@ -37,3 +37,7 @@ data/adapters/*.yaml
 .DS_Store
 .idea/
 .vscode/
+
+# K8s 集群交付物：kubeconfig + Harbor 凭证，绝不能入库
+zjs-config/
+zjs-*.zip

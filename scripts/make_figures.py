@@ -286,6 +286,12 @@ def signup_url() -> str:
     return f"{base}/signup.html"
 
 
+def enroll_url() -> str:
+    """学生报名页的对外地址，同一种"响亮失败"设计。"""
+    base = (CONFIG.public_base_url or f"http://{CONFIG.host}:{CONFIG.port}").rstrip("/")
+    return f"{base}/enroll.html"
+
+
 def _qr_block(text: str, x: float, y: float, side: float, ec: str = "M") -> str:
     """把一段文本画成边长 side 的二维码，含 4 模块静区（静区不留，很多扫码器认不出）。"""
     m = qrcode.encode(text, ec)
@@ -334,11 +340,41 @@ def fig_qr() -> str:
     return _svg("".join(b), "#F7F9FC")
 
 
+def fig_enroll_qr() -> str:
+    """学生报名二维码：单张大码，扫码即到 /enroll.html，不并排放第二个链接——
+    128 人报到当晚要的是"扫了就填"，不是"看两个选项"。"""
+    url = enroll_url()
+    local = not CONFIG.public_base_url
+    b = []
+    b.append(f'<rect width="{W}" height="{H}" fill="#F7F9FC"/>')
+    b.append(f'<text x="{W/2}" y="110" font-size="50" font-weight="bold" fill="{INK}" '
+             f'text-anchor="middle">扫码报名 · 人工智能卓越工程师实验班</text>')
+    b.append(f'<text x="{W/2}" y="160" font-size="22" fill="{MUTED}" text-anchor="middle">'
+             f'只需姓名和手机号，不用登录，一分钟填完</text>')
+
+    side = 480
+    x, y = W / 2 - side / 2, 220
+    b.append(f'<rect x="{x - 26}" y="{y - 26}" width="{side + 52}" height="{side + 52}" '
+             f'rx="20" fill="#FFFFFF" stroke="{ACCENT}" stroke-width="3"/>')
+    b.append(_qr_block(url, x, y, side))
+    b.append(f'<text x="{W/2}" y="{y + side + 76}" font-size="19" fill="{MUTED}" '
+             f'text-anchor="middle">{url}</text>')
+
+    if local:
+        b.append(f'<rect x="240" y="{H-118}" width="{W-480}" height="66" rx="10" '
+                 f'fill="{BAD}" opacity="0.10"/>')
+        b.append(f'<text x="{W/2}" y="{H-76}" font-size="20" fill="{BAD}" '
+                 f'text-anchor="middle">⚠ 配置里没有填 public_base_url，'
+                 f'这张码只有本机能扫。部署后请在 config.yaml 填实际地址并重出。</text>')
+    return _svg("".join(b), "#F7F9FC")
+
+
 FIGURES = {
     "tsunami": ("ai-tsunami.png", fig_tsunami),
     "ark": ("noahs-ark.png", fig_ark),
     "agents": ("agent-constellation.png", fig_agents),
     "qr": ("signup-qr.png", fig_qr),
+    "enroll-qr": ("enroll-qr.png", fig_enroll_qr),
 }
 
 

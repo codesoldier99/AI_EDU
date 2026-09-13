@@ -1,0 +1,67 @@
+/* 学生报名页：扫码用手机打开，窄屏优先。
+   只有两个字段——版式的全部工作就是把"填两下、点一下"这件事做得让人安心。 */
+:root {
+  --navy: #0C1E38; --navy2: #163255; --gold: #C07E1A; --gold-lt: #E8A840;
+  --teal: #0A7A6F; --ink: #1A2335; --muted: #64748B; --line: #E5E9F0;
+  --bg: #F4F1EC; --card: #FFFFFF; --danger: #C0392B;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+.en-body {
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(232,168,64,.16), transparent 60%),
+    linear-gradient(180deg, var(--navy) 0%, var(--navy2) 42%, var(--bg) 42%);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+    "Noto Sans SC", sans-serif;
+  color: var(--ink);
+}
+.en-wrap { max-width: 460px; margin: 0 auto; padding: 44px 20px 40px; }
+
+.en-hero { text-align: center; color: #fff; padding: 4px 6px 30px; }
+.en-badge { display: inline-block; font-size: 12px; letter-spacing: .12em;
+  color: var(--gold-lt); border: 1px solid rgba(232,168,64,.45); border-radius: 999px;
+  padding: 4px 14px; margin-bottom: 16px; text-transform: uppercase; }
+.en-hero h1 { margin: 0 0 10px; font-size: 24px; line-height: 1.4; font-weight: 700; }
+.en-hero p { margin: 0; font-size: 13px; color: rgba(255,255,255,.62); line-height: 1.8; }
+
+.en-card { background: var(--card); border-radius: 18px; padding: 26px 22px 24px;
+  box-shadow: 0 18px 40px rgba(12,30,56,.16); }
+
+.en-field { margin-bottom: 18px; }
+.en-field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: var(--ink); }
+.en-field input { width: 100%; padding: 14px 16px; font-size: 17px; border-radius: 12px;
+  border: 1.5px solid var(--line); background: #FAFBFD; color: inherit; font: inherit;
+  transition: border-color .15s, background .15s; }
+.en-field input:focus { outline: none; border-color: var(--gold); background: #fff; }
+.en-field input::placeholder { color: #AEB8C4; }
+
+.en-err { color: var(--danger); font-size: 13.5px; margin: -6px 0 14px; min-height: 1px; }
+
+.en-submit { width: 100%; padding: 15px; font-size: 16px; font-weight: 700; border: 0;
+  border-radius: 12px; background: linear-gradient(135deg, var(--gold), #D4941F);
+  color: #fff; cursor: pointer; box-shadow: 0 10px 22px rgba(192,126,26,.35);
+  transition: transform .12s, box-shadow .12s; }
+.en-submit:active { transform: translateY(1px); box-shadow: 0 6px 14px rgba(192,126,26,.3); }
+.en-submit:disabled { opacity: .6; cursor: default; box-shadow: none; }
+
+.en-count { text-align: center; font-size: 12.5px; color: var(--muted); margin-top: 16px; }
+.en-count b { color: var(--gold); font-variant-numeric: tabular-nums; }
+
+.en-note { text-align: center; font-size: 12px; color: rgba(255,255,255,.4);
+  margin-top: 22px; line-height: 1.7; }
+
+/* 成功态 */
+.en-done { text-align: center; padding: 40px 22px 32px; }
+.en-check { width: 68px; height: 68px; margin: 0 auto 20px; border-radius: 50%;
+  background: rgba(10,122,111,.1); display: flex; align-items: center; justify-content: center;
+  animation: en-pop .35s cubic-bezier(.34,1.56,.64,1); }
+.en-check svg { width: 34px; height: 34px; }
+@keyframes en-pop { from { transform: scale(.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.en-done h2 { margin: 0 0 8px; font-size: 20px; }
+.en-done p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.8; }
+.en-done .en-rank { color: var(--gold); font-weight: 700; }
+
+@media (min-width: 480px) {
+  .en-wrap { padding-top: 64px; }
+}
