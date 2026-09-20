@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from packages.core.db import dumps, get_db
+from packages.core.db import dumps, get_db, loads
 from packages.core.timeutil import now_str
 
-from .models import AbilityModule, Edge, GraphStats, KnowledgePoint, ProjectTask
+from .models import (
+    AbilityModule, Edge, GraphStats, JobPosting, JobRequirement, KnowledgePoint, ProjectTask,
+)
 
 
 # ---------------- 课程 ----------------
@@ -726,4 +728,97 @@ def _compute_stats() -> GraphStats:
         tasks=db.scalar("SELECT COUNT(*) FROM project_task") or 0,
         task_kp_links=db.scalar("SELECT COUNT(*) FROM task_kp_link") or 0,
         cycles=detect_cycles(),
+    )
+
+
+# ---------------- 求职智能体：岗位需求三层图谱 ----------------
+# 岗位需求（第一层）与其分解树（第二层）都是教师/企业导师维护的配置数据，
+# 与 course / project_task 同级——不是学生事实，因此不必经过教师采纳的候选队列。
+# 第三层直接复用 knowledge_point，不新建一份"能力点"坐标系（铁律 2）。
+
+def upsert_job(code: str, name: str, company: str = "", description: str = "") -> int:
+    db = get_db()
+    row = db.query_one("SELECT id FROM job_posting WHERE code=?", (code,))
+    if row:
+        db.execute(
+            "UPDATE job_posting SET name=?, company=?, description=? WHERE id=?",
+            (name, company, description, row["id"]),
+        )
+        return row["id"]
+    return db.execute(
+        "INSERT INTO job_posting(code, name, company, description) VALUES(?,?,?,?)",
+        (code, name, company, description),
+    )
+
+
+def get_job(code: str) -> JobPosting | None:
+    row = get_db().query_one("SELECT * FROM job_posting WHERE code=?", (code,))
+    return JobPosting.from_dict(row) if row else None
+
+
+def list_jobs() -> list[JobPosting]:
+    rows = get_db().query("SELECT * FROM job_posting ORDER BY id")
+    return [JobPosting.from_dict(r) for r in rows]
+
+
+def upsert_requirement(job_id: int, code: str, name: str, parent_code: str = "",
+                       weight: float = 1.0, signal_classes: list | None = None,
+                       seq: int = 0) -> int:
+    db = get_db()
+    parent_id = None
+    if parent_code:
+        p = db.query_one("SELECT id FROM job_requirement WHERE job_id=? AND code=?",
+                         (job_id, parent_code))
+        parent_id = p["id"] if p else None
+    sc = dumps(signal_classes or [])
+    row = db.query_one("SELECT id FROM job_requirement WHERE job_id=? AND code=?",
+                       (job_id, code))
+    if row:
+        db.execute(
+            "UPDATE job_requirement SET parent_id=?, name=?, weight=?, signal_classes=?,"
+            " seq=? WHERE id=?",
+            (parent_id, name, weight, sc, seq, row["id"]),
+        )
+        return row["id"]
+    return db.execute(
+        "INSERT INTO job_requirement(job_id, parent_id, code, name, weight, signal_classes, seq)"
+        " VALUES(?,?,?,?,?,?,?)",
+        (job_id, parent_id, code, name, weight, sc, seq),
+    )
+
+
+def _requirement_from_row(row: dict) -> JobRequirement:
+    r = JobRequirement.from_dict(row)
+    r.signal_classes = loads(row["signal_classes"], [])
+    return r
+
+
+def get_requirement(job_id: int, code: str) -> JobRequirement | None:
+    row = get_db().query_one("SELECT * FROM job_requirement WHERE job_id=? AND code=?",
+                             (job_id, code))
+    return _requirement_from_row(row) if row else None
+
+
+def list_requirements(job_id: int) -> list[JobRequirement]:
+    """一个岗位的全部需求节点（含分解树各层），按 seq 排序。"""
+    rows = get_db().query(
+        "SELECT * FROM job_requirement WHERE job_id=? ORDER BY seq, id", (job_id,)
+    )
+    return [_requirement_from_row(r) for r in rows]
+
+
+def link_requirement_kp(requirement_id: int, kp_id: int, weight: float = 1.0) -> None:
+    get_db().execute(
+        "INSERT OR REPLACE INTO requirement_kp_link(requirement_id, kp_id, weight)"
+        " VALUES(?,?,?)",
+        (requirement_id, kp_id, weight),
+    )
+
+
+def requirement_kps(requirement_id: int) -> list[dict]:
+    """一个需求叶子节点关联的知识点（含权重与知识点基本信息）。"""
+    return get_db().query(
+        "SELECT k.id AS kp_id, k.code, k.name, k.course_id, l.weight FROM requirement_kp_link l"
+        " JOIN knowledge_point k ON k.id=l.kp_id WHERE l.requirement_id=? ORDER BY l.weight DESC",
+        (requirement_id,),
     )
