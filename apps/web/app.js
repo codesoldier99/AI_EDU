@@ -783,12 +783,19 @@ async function viewCareer(root) {
       value: j.code, selected: j.code === S.careerJob ? '' : null,
     }, `${j.name}（${j.company || '未填企业'}）`))))));
 
-  root.append(card('求职智能体 · 岗位需求三层图谱', h('div', {},
+  root.append(card('求职智能体 · 岗位需求四层图谱', h('div', {},
     h('p', { class: 'hint' },
       '第一层是岗位需求本身；第二层是拆解出的能力维度，可以再往下展开；'
-      + '第三层落到具体知识点与项目证据——这就是把"百万个信息点"折成 HR 看得懂的结构。'
-      + '球体颜色是匹配度/掌握度，中心金色球是岗位本身。左键旋转、滚轮缩放、单击查看详情。'),
+      + '第三层落到具体知识点与信号类别；第四层是这个学生名下每一条真实的'
+      + '随堂测验/作业/实验记录与项目提交信号——这就是把"两年内积累的海量信息点"'
+      + '折成 HR 看得懂的结构。球体颜色是匹配度/掌握度/对错，中心金色球是岗位本身。'
+      + '亮色连线是结构关系，暗橙色的细连线是从知识点渗出的原始证据。'
+      + '左键旋转、滚轮缩放、单击查看详情。'),
     h('p', {}, data.job.description),
+    data.total_evidence !== undefined ? h('p', { class: 'hint' },
+      `本视图第四层渲染了 ${data.rendered_evidence} 个原始证据点`
+      + `（该学生这些知识点/信号上的真实记录共 ${data.total_evidence} 条，超出部分因浏览器渲染上限未逐条画出，`
+      + '但已计入上方掌握度与匹配度的计算）。') : null,
     fit ? h('div', { class: 'flexrow' },
       h('span', { class: 'tag accent' }, `综合匹配度 ${pct(fit.overall_fit)}`),
       h('span', { class: 'tag' }, `证据 ${fit.evidence_count} 条`),
@@ -806,7 +813,22 @@ async function viewCareer(root) {
       data,
       onSelect: (n) => {
         detail.innerHTML = '';
-        detail.append(h('p', {}, h('b', {}, n.name), ` (${n.code})`),
+        if (n.kind === 'event') {
+          detail.append(h('p', {}, h('b', {}, '一条真实作答记录')),
+            h('p', { class: 'hint' },
+              `${n.event_type} · ${n.occurred_at}`
+              + ` · ${n.is_correct === true ? '答对' : n.is_correct === false ? '答错' : '不参与判分'}`
+              + ` · 来源 ${n.source}`));
+          return;
+        }
+        if (n.kind === 'signal' || n.kind === 'signal_group') {
+          detail.append(h('p', {}, h('b', {}, n.kind === 'signal' ? '一条真实项目信号' : `信号类别：${n.name}`)),
+            n.kind === 'signal'
+              ? h('p', { class: 'hint' }, `${n.signal_class} · ${n.occurred_at} · 数值 ${n.value}`)
+              : h('p', { class: 'hint' }, '点开下面的小球查看每一条具体记录'));
+          return;
+        }
+        detail.append(h('p', {}, h('b', {}, n.name), n.code ? ` (${n.code})` : ''),
           n.mastery !== undefined && n.mastery !== null
             ? h('p', { class: 'hint' },
               `掌握度 ${pct(n.mastery)} · 折算当前 ${pct(n.retained)}`

@@ -195,8 +195,21 @@ class CareerAgent(Agent):
         )
 
     # ------------------------------------------------------------ 三层可视化投影
+    # 每个知识点/信号叶子最多渲染这么多条第四层原始记录——不是为了藏证据，
+    # 是 three.js 在浏览器里撑不住无限多个 Mesh。真实条数走 total_evidence，
+    # 该截断就明确截断，不能截断了还装作没截断（铁律 4 的另一种写法）。
+    EVENT_RENDER_CAP = 30
+    SIGNAL_RENDER_CAP = 20
+
     def build_universe(self, job_code: str, student_id: int | None = None) -> dict | None:
-        """把三层结构铺成 3D 视图要的一份数据：job -> requirement 树 -> 知识点叶子。"""
+        """把结构铺成 3D 视图要的一份数据：job -> requirement 树 -> 知识点/信号叶子
+        -> （有学生时）第四层：这个学生名下真实的单条作答记录与项目信号记录。
+
+        第四层不是凭空造的数字——每一个点都是 learning_event 或 project_signal
+        表里的一行真实记录，`total_evidence` 如实报告截断前的条数，
+        `rendered_evidence` 是实际画出来的（受 EVENT_RENDER_CAP/SIGNAL_RENDER_CAP
+        限制）。这一层只读，不写任何东西。
+        """
         job = graph_repo.get_job(job_code)
         if not job:
             return None
@@ -211,6 +224,7 @@ class CareerAgent(Agent):
                   "company": job.company}]
         edges: list[list[str]] = []
         depth_of: dict[int, int] = {}
+        total_evidence = rendered_evidence = 0
 
         def depth(r) -> int:
             if r.id in depth_of:
@@ -231,21 +245,59 @@ class CareerAgent(Agent):
                           "weight": r.weight})
             pid = f"req:{r.parent_id}" if r.parent_id else "job"
             edges.append([pid, nid])
+
             for k in graph_repo.requirement_kps(r.id):
                 kid = f"kp:{k['kp_id']}"
                 edges.append([nid, kid])
-                if k["kp_id"] in kp_seen:
-                    continue
-                kp_seen.add(k["kp_id"])
-                q = quality.get(k["kp_id"], {})
-                nodes.append({
-                    "id": kid, "layer": d + 1, "code": k["code"], "name": k["name"],
-                    "mastery": (round(mastery[k["kp_id"]], 4)
-                                if student_id and k["kp_id"] in mastery else None),
-                    "retained": q.get("retained"),
-                    "validated": q.get("validated"),
-                    "evidence_count": q.get("evidence_count", 0),
-                })
+                if k["kp_id"] not in kp_seen:
+                    kp_seen.add(k["kp_id"])
+                    q = quality.get(k["kp_id"], {})
+                    nodes.append({
+                        "id": kid, "layer": d + 1, "code": k["code"], "name": k["name"],
+                        "mastery": (round(mastery[k["kp_id"]], 4)
+                                    if student_id and k["kp_id"] in mastery else None),
+                        "retained": q.get("retained"),
+                        "validated": q.get("validated"),
+                        "evidence_count": q.get("evidence_count", 0),
+                    })
+                    if student_id:
+                        evs = state_repo.list_events(
+                            student_id=student_id, kp_id=k["kp_id"], order="occurred_at")
+                        total_evidence += len(evs)
+                        for e in evs[-self.EVENT_RENDER_CAP:]:
+                            eid = f"ev:{e['id']}"
+                            edges.append([kid, eid])
+                            nodes.append({
+                                "id": eid, "layer": d + 2, "kind": "event",
+                                "name": f"{e['event_type']}·{e['occurred_at'][:10]}",
+                                "event_type": e["event_type"],
+                                "is_correct": e["is_correct"], "source": e["source"],
+                                "occurred_at": e["occurred_at"],
+                            })
+                            rendered_evidence += 1
+
+            if student_id and r.signal_classes:
+                for sc in r.signal_classes:
+                    rows = get_db().query(
+                        "SELECT id, value, occurred_at FROM project_signal"
+                        " WHERE student_id=? AND signal_class=? ORDER BY occurred_at",
+                        (student_id, sc),
+                    )
+                    total_evidence += len(rows)
+                    gid = f"reqsig:{r.id}:{sc}"
+                    nodes.append({"id": gid, "layer": d + 1, "kind": "signal_group",
+                                  "name": sc})
+                    edges.append([nid, gid])
+                    for row in rows[-self.SIGNAL_RENDER_CAP:]:
+                        sgid = f"sig:{row['id']}"
+                        edges.append([gid, sgid])
+                        nodes.append({
+                            "id": sgid, "layer": d + 2, "kind": "signal",
+                            "name": f"{sc}·{row['occurred_at'][:10]}",
+                            "signal_class": sc, "value": row["value"],
+                            "occurred_at": row["occurred_at"],
+                        })
+                        rendered_evidence += 1
 
         return {
             "job": {"code": job.code, "name": job.name, "company": job.company,
@@ -254,6 +306,8 @@ class CareerAgent(Agent):
             "nodes": nodes,
             "edges": edges,
             "threshold": CONFIG.teaching.mastery_threshold,
+            "total_evidence": total_evidence,
+            "rendered_evidence": rendered_evidence,
         }
 
     # ------------------------------------------------------------ 表达部分

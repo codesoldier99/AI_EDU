@@ -118,6 +118,30 @@ class TestCareerFitReport(DBTestCase):
     def test_build_universe_unknown_job_returns_none(self):
         self.assertIsNone(self.agent.build_universe("NOPE"))
 
+    def test_build_universe_fourth_layer_is_real_events_not_fabricated(self):
+        """第四层必须是这个学生名下真实的 learning_event 行，不是凭空造的数字。"""
+        for ok in (True, False, True):
+            tracker.record(self.student, "quiz", self.kp["A"], ok, source="quiz")
+        data = self.agent.build_universe("JOB-T", self.student)
+        events = [n for n in data["nodes"] if n.get("kind") == "event"]
+        self.assertEqual(len(events), 3)
+        self.assertEqual(data["total_evidence"], 3)
+        self.assertEqual(data["rendered_evidence"], 3)
+        # 每条事件节点都必须挂在它所属的知识点下面，不能悬空
+        kp_a = f"kp:{self.kp['A']}"
+        event_ids = {n["id"] for n in events}
+        linked = {b for a, b in data["edges"] if a == kp_a and b in event_ids}
+        self.assertEqual(linked, event_ids)
+
+    def test_build_universe_caps_rendered_events_but_reports_true_total(self):
+        cap = CareerAgent.EVENT_RENDER_CAP
+        for _ in range(cap + 5):
+            tracker.record(self.student, "quiz", self.kp["A"], True, source="quiz")
+        data = self.agent.build_universe("JOB-T", self.student)
+        rendered = [n for n in data["nodes"] if n.get("kind") == "event"]
+        self.assertEqual(len(rendered), cap)
+        self.assertEqual(data["total_evidence"], cap + 5)
+
 
 class TestCareerResume(OfflineLLMMixin, DBTestCase):
     seed_course = True
