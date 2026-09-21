@@ -755,9 +755,109 @@ async function viewUniverse(root) {
   }
 }
 
+// ---------------------------------------------------------------- 视图：求职智能体
+async function viewCareer(root) {
+  const sid = currentStudent();
+  root.append(loading());
+  const { jobs } = await api('/api/jobs');
+  if (!jobs.length) {
+    root.innerHTML = '';
+    root.append(h('div', { class: 'notice' }, '还没有任何岗位需求图谱，先跑 make seed jobs。'));
+    return;
+  }
+  S.careerJob = S.careerJob && jobs.some((j) => j.code === S.careerJob)
+    ? S.careerJob : jobs[0].code;
+  const data = await api(`/api/career/${encodeURIComponent(S.careerJob)}`
+    + `${isTeacher() || myId() ? `?student_id=${sid}` : ''}`);
+  const fit = (isTeacher() || myId())
+    ? await api(`/api/career/${encodeURIComponent(S.careerJob)}/fit?student_id=${sid}`)
+      .catch(() => null)
+    : null;
+  root.innerHTML = '';
+
+  root.append(card('看哪个岗位', h('div', { class: 'flexrow' },
+    h('span', { class: 'pill' }, '目标岗位'),
+    h('select', {
+      onchange: (e) => { S.careerJob = e.target.value; render(); },
+    }, ...jobs.map((j) => h('option', {
+      value: j.code, selected: j.code === S.careerJob ? '' : null,
+    }, `${j.name}（${j.company || '未填企业'}）`))))));
+
+  root.append(card('求职智能体 · 岗位需求三层图谱', h('div', {},
+    h('p', { class: 'hint' },
+      '第一层是岗位需求本身；第二层是拆解出的能力维度，可以再往下展开；'
+      + '第三层落到具体知识点与项目证据——这就是把"百万个信息点"折成 HR 看得懂的结构。'
+      + '球体颜色是匹配度/掌握度，中心金色球是岗位本身。左键旋转、滚轮缩放、单击查看详情。'),
+    h('p', {}, data.job.description),
+    fit ? h('div', { class: 'flexrow' },
+      h('span', { class: 'tag accent' }, `综合匹配度 ${pct(fit.overall_fit)}`),
+      h('span', { class: 'tag' }, `证据 ${fit.evidence_count} 条`),
+      h('span', { class: 'tag' }, `置信度 ${f3(fit.confidence)}`)) : null,
+    fit ? caveatBox(fit) : null)));
+
+  const wrap = h('div', { class: 'kg-wrap' });
+  root.append(wrap);
+  const detail = h('div', { id: 'career-detail' });
+  root.append(card('选中节点详情', detail, '单击图里的球体查看'));
+
+  try {
+    const mod = await import('/career3d.js');
+    S.career = mod.mountCareer(wrap, {
+      data,
+      onSelect: (n) => {
+        detail.innerHTML = '';
+        detail.append(h('p', {}, h('b', {}, n.name), ` (${n.code})`),
+          n.mastery !== undefined && n.mastery !== null
+            ? h('p', { class: 'hint' },
+              `掌握度 ${pct(n.mastery)} · 折算当前 ${pct(n.retained)}`
+              + `${n.validated ? ' · 已跨时间验证' : ''}`
+              + ` · 证据 ${n.evidence_count ?? 0} 条`) : null,
+          n.weight !== undefined ? h('p', { class: 'hint' }, `权重 ${n.weight}`) : null);
+      },
+    });
+  } catch (e) {
+    wrap.innerHTML = '';
+    wrap.append(h('div', { class: 'notice bad' },
+      `3D 视图加载失败：${e.message}。`));
+  }
+
+  if (fit) {
+    root.append(card('匹配的能力（强项）', fit.strengths.length
+      ? tableOf(['需求维度', '知识点', '掌握度', '是否已验证'], fit.strengths.map((x) =>
+        [x.requirement, x.kp_name, pct(x.retained), x.validated ? '✓' : '—']))
+      : h('p', { class: 'hint' }, '暂无已验证的强项，证据尚不充分')));
+    root.append(card('尚待提升（差距）', fit.gaps.length
+      ? tableOf(['需求维度', '知识点', '说明'], fit.gaps.map((x) =>
+        [x.requirement, x.kp_name, x.note || `掌握度 ${pct(x.retained || 0)}`]))
+      : h('p', { class: 'hint' }, '暂无明显短板')));
+  }
+
+  const resumeOut = h('div', {});
+  root.append(card('生成求职简历（大模型只负责表达，事实全部来自上面的三层图谱）',
+    h('div', {},
+      h('button', {
+        onclick: async () => {
+          resumeOut.innerHTML = '';
+          resumeOut.append(loading());
+          try {
+            const r = await api(`/api/career/${encodeURIComponent(S.careerJob)}/resume`,
+              { body: { student_id: sid } });
+            resumeOut.innerHTML = '';
+            resumeOut.append(h('p', { style: 'white-space:pre-wrap' }, r.narrative),
+              caveatBox(r));
+          } catch (e) {
+            resumeOut.innerHTML = '';
+            resumeOut.append(h('div', { class: 'notice bad' }, `生成失败：${e.message}`));
+          }
+        },
+      }, '生成简历'),
+      resumeOut)));
+}
+
 // ---------------------------------------------------------------- 视图：可审计性
 async function viewAudit(root) {
   root.append(loading());
+
   const health = await api('/api/health');
   const cfg = await api('/api/config');
   root.innerHTML = '';
@@ -879,6 +979,7 @@ const TABS = [
   { id: 'study', name: '学习工作台', role: 'any', view: (r) => STUDY.view(r), student: true },
   { id: 'copilot', name: '学习副驾驶', role: 'any', view: viewCopilot, student: true },
   { id: 'universe', name: '知识宇宙 3D', role: 'any', view: viewUniverse, student: true },
+  { id: 'career', name: '求职智能体', role: 'any', view: viewCareer, student: true },
   { id: 'graph', name: '知识图谱', role: 'any', view: viewGraph },
   { id: 'audit', name: '可审计性', role: 'any', view: viewAudit, student: true },
 ];
@@ -899,6 +1000,7 @@ function renderTabs() {
 
 async function render() {
   if (S.universe) { S.universe.destroy(); S.universe = null; }
+  if (S.career) { S.career.destroy(); S.career = null; }
   const tab = visibleTabs().find((t) => t.id === S.tab) || visibleTabs()[0];
   S.tab = tab.id;
   renderTabs();

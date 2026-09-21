@@ -41,6 +41,7 @@ COURSE_FILES = [
     "course_dac.yaml",      # DAC-3D 项目知识域
 ]
 PROJECT_FILES = ["projects.yaml", "projects_dac.yaml"]
+JOB_FILES = ["jobs.yaml"]
 
 
 def _yaml(path):
@@ -252,6 +253,48 @@ def seed_projects(file: str = "projects.yaml") -> dict:
     return {"tasks": n_tasks, "task_kp_links": n_links, "unknown_kp_codes": sorted(set(unknown))}
 
 
+# ---------------------------------------------------------------- 求职智能体
+def seed_jobs(file: str = "jobs.yaml") -> dict:
+    """导入岗位需求三层图谱：job -> requirement 树 -> kp 叶子。
+
+    与项目任务映射同理，这是教师/企业导师维护的配置数据，直接写入，
+    不经过教师采纳的候选队列（它不是学分认定依据）。
+    """
+    path = SEED / file
+    if not path.exists():
+        return {"jobs": 0, "requirements": 0, "kp_links": 0, "unknown_kp_codes": []}
+    data = _yaml(path)
+    n_jobs = n_reqs = n_links = 0
+    unknown: list[str] = []
+
+    def walk(job_id: int, node: dict, parent_code: str, seq: int) -> None:
+        nonlocal n_reqs, n_links
+        rid = repo.upsert_requirement(
+            job_id, node["code"], node["name"], parent_code,
+            float(node.get("weight", 1.0)), node.get("signal_classes") or [], seq,
+        )
+        n_reqs += 1
+        for kc in node.get("kps") or []:
+            kp = repo.get_kp_by_code(kc)
+            if not kp:
+                unknown.append(kc)
+                continue
+            repo.link_requirement_kp(rid, kp.id, 1.0)
+            n_links += 1
+        for i, child in enumerate(node.get("children") or []):
+            walk(job_id, child, node["code"], i)
+
+    for j in data.get("jobs", []):
+        jid = repo.upsert_job(j["code"], j["name"], j.get("company", ""),
+                              j.get("description", ""))
+        n_jobs += 1
+        for i, req in enumerate(j.get("requirements", [])):
+            walk(jid, req, "", i)
+
+    return {"jobs": n_jobs, "requirements": n_reqs, "kp_links": n_links,
+            "unknown_kp_codes": sorted(set(unknown))}
+
+
 # ---------------------------------------------------------------- 知识库
 def seed_kb() -> dict:
     out = {}
@@ -353,6 +396,13 @@ def main() -> None:
             if r["unknown_kp_codes"]:
                 print(f"  → 任务要求了 {len(r['unknown_kp_codes'])} 个尚未建的知识点，"
                       f"已登记进需求队列：{'、'.join(r['unknown_kp_codes'][:4])}…")
+    if what in ("all", "jobs"):
+        for f in JOB_FILES:
+            r = seed_jobs(f)
+            print(f"→ 求职智能体岗位图谱 {f}：{r['jobs']} 个岗位 / {r['requirements']} 个需求节点"
+                  f" / {r['kp_links']} 条需求-知识点映射")
+            if r["unknown_kp_codes"]:
+                print(f"  ⚠ 引用了尚未建的知识点代码：{r['unknown_kp_codes'][:5]}")
     if what in ("all", "kb"):
         r = seed_kb()
         print(f"→ 知识库：{sum(r.values())} 个文本块，来自 {len(r)} 个文件")

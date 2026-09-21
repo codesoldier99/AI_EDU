@@ -1,0 +1,58 @@
+# 求职智能体：岗位需求三层图谱的种子数据。
+#
+# 这里的岗位是示例/合外部企业占位，真实接入时替换 company/description 即可，
+# 核心代码不需要改一行——和 data/adapters 的项目适配器同一个道理。
+#
+# 结构对应 migrations/012_career.sql 的三层：
+#   job（第一层） -> requirements 树（第二层，可多级嵌套） -> kps 叶子（第三层）
+# 叶子节点要么给 kps（挂到已建图谱的知识点），要么给 signal_classes
+# （工程/协作类需求没有对应知识点，改用五类项目信号佐证），两者可以同时给。
+
+jobs:
+  - code: JOB-VISION-ENG
+    name: 机器视觉算法工程师
+    company: 示例科技（合作企业占位，接入时替换为真实岗位）
+    description: 面向工业检测场景的视觉算法研发岗位，要求具备相机标定、缺陷检测与机器学习基础。
+    requirements:
+      - code: REQ-VISION
+        name: 视觉检测算法能力
+        weight: 0.5
+        children:
+          - code: REQ-VISION-CALIB
+            name: 相机标定与误差分析
+            weight: 0.5
+            kps: [DAC-05-09, DAC-05-10, DAC-05-11, DAC-06-07]
+          - code: REQ-VISION-DEFECT
+            name: 缺陷检测与分类
+            weight: 0.5
+            kps: [DAC-07-01, DAC-07-05, DAC-07-06, DAC-07-08, DAC-07-09, ML-01-06, ML-04-07]
+      - code: REQ-ML-BASIC
+        name: 机器学习基础
+        weight: 0.3
+        kps: [ML-05-01, ML-05-03, ML-12-08]
+      - code: REQ-ENG
+        name: 工程交付能力
+        weight: 0.2
+        signal_classes: [build_test, code_commit]
+
+  - code: JOB-SWE
+    name: 嵌入式/后端软件工程师
+    company: 示例科技（合作企业占位，接入时替换为真实岗位）
+    description: 面向产业项目落地的软件研发岗位，要求面向对象工程能力、算法基础与系统架构设计能力。
+    requirements:
+      - code: REQ-OOP
+        name: 面向对象工程能力
+        weight: 0.3
+        kps: [OOP-01-01, OOP-01-02, OOP-01-03, OOP-01-04, OOP-02-01, OOP-02-02, OOP-IFACE, OOP-02-04]
+      - code: REQ-DSA
+        name: 算法与数据结构
+        weight: 0.3
+        kps: [DSA-01-01, DSA-01-02, DSA-01-03, DSA-02-01, DSA-02-02, DSA-02-03, DSA-02-04, DSA-02-05]
+      - code: REQ-SYS
+        name: 系统架构设计能力
+        weight: 0.2
+        kps: [DAC-01-01, DAC-01-02, DAC-01-03, DAC-01-04, DAC-02-01, DAC-02-02, DAC-02-03]
+      - code: REQ-COLLAB
+        name: 协作与交付能力
+        weight: 0.2
+        signal_classes: [collaboration, doc_delivery]

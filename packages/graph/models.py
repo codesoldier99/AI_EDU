@@ -56,6 +56,27 @@ class TaskKPLink(Message):
 
 
 @dataclass
+class JobPosting(Message):
+    id: int = 0
+    code: str = ""
+    name: str = ""
+    company: str = ""
+    description: str = ""
+
+
+@dataclass
+class JobRequirement(Message):
+    id: int = 0
+    job_id: int = 0
+    parent_id: int | None = None
+    code: str = ""
+    name: str = ""
+    weight: float = 1.0
+    signal_classes: list = field(default_factory=list)
+    seq: int = 0
+
+
+@dataclass
 class GraphStats(Message):
     courses: int = 0
     kps: int = 0
