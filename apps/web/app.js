@@ -1052,7 +1052,11 @@ async function boot() {
   try {
     const tk = S.token; S.token = 'teacher:T003';
     const st = await api('/api/students');
-    for (const s of st.items.slice(0, 8)) opts.push([`student:${s.sid}`, `学生 · ${s.name}（${s.sid}）`]);
+    // 标记为"演示"的账号（cohort/klass 含"演示"，如求职智能体的样板学生）优先露出，
+    // 否则学号排序靠后就永远挤不进这个只显示前几个的快速切换列表。
+    const isShowcase = (s) => /演示/.test(s.cohort || '') || /演示/.test(s.klass || '');
+    const ordered = [...st.items.filter(isShowcase), ...st.items.filter((s) => !isShowcase(s))];
+    for (const s of ordered.slice(0, 8)) opts.push([`student:${s.sid}`, `学生 · ${s.name}（${s.sid}）`]);
     S.token = tk;
   } catch (e) { /* 尚未生成演示数据 */ }
   for (const [v, n] of opts) sel.append(h('option', { value: v, selected: v === S.token ? '' : null }, n));
